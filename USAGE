@@ -1,0 +1,87 @@
+  The module takes a number of configuration options.  Password changing
+is not implemented, as the RADIUS protocol does not support it.
+
+  The pam configuration can be:
+...
+auth       sufficient   /lib/security/pam_radius_auth.so [options]
+...
+account    sufficient   /lib/security/pam_radius_auth.so
+
+---------------------------------------------------------------------------
+
+  The 'options' section is optional, and can contain one or more of
+the following strings.  Note that not all of these options are
+relevant in for all uses of the module.
+
+debug          - print out extensive debugging information via pam_log.
+                 These messages generally end up being handled by
+                 sylog(), and go to /var/log/messages.  Depending on
+                 your host operating system, the log messages may be
+                 elsewhere.
+		 You should generally use the debug option when first
+		 trying to install the module, as it will help
+		 enormously in tracking down problems.
+
+use_first_pass - Instead of prompting the user for a password, retrieve
+                 the password from the previous authentication module.
+                 If the password does not exist, return failure.
+                 If the password exists, try it, returning success/failure
+                 as appropriate.
+
+try_first_pass - Instead of prompting the user for a password, retrieve
+                 the password from the previous authentication module.
+                 If the password exists, try it, and return success if it
+                 passes.
+                 If there was no previous password, or the previous password
+                 fails authentication, prompt the user with
+                 "Enter RADIUS password: ", and ask for another password.
+                 Try this password, and return success/failure as appropriate.
+
+                 This is the default for authentication.
+
+skip_passwd    - Do not prompt for a password, even if there was none
+                 retrieved from the previous layer.
+                 Send the previous one (if it exists), or else send a NULL
+                 password.
+                 If this fails, exit.
+                 If an Access-Challenge is returned, display the challenge
+                 message, and ask the user for the response.
+                 Return success/failure as appropriate.
+
+                 The password sent to the next authentication module will
+                 NOT be the response to the challenge.  If a password from
+                 a previous authentication module exists, it is passed on.
+                 Otherwise, no password is sent to the next module.
+
+conf=foo       - set the configuration filename to 'foo'.
+                 Default is /etc/raddb/server
+
+client_id=bar  - send a NAS-Identifier RADIUS attribute with string
+                 'bar'.  If the client_id is not specified, the PAM_SERVICE
+                 type is used instead. ('login', 'su', 'passwd', etc.)
+                 This feature may be disabled by using 'client_id='.
+                 i.e. A blank client ID.
+
+retry = #      - allow a number of retries before continuing to the next
+                 authentication module
+
+use_authtok    - force the use of a previously entered password.
+                 This is  needed for pluggable password strength checking
+                 i.e. try cracklib to be sure it's secure, then go update
+                 the RADIUS server.
+
+ruser          - If PAM_USER is root, Use the value of PAM_RUSER instead
+                 of PAM_USER to determine the username to authenticate via
+                 RADIUS.  This is to allow 'su' to act like 'sudo'.
+
+localifdown    - This option tells pam_radius to return PAM_IGNORE instead
+                 of PAM_AUTHINFO_UNAVAIL if RADIUS auth failed due to
+                 network unavailability.  PAM_IGNORE tells the pam stack
+                 to continue down the stack regardless of the control flag.
+
+accounting_bug - When used, the accounting response vector is NOT
+                 validated.  This option will probably only be necessary
+                 on REALLY OLD (i.e. Livingston 1.16) servers.
+
+---------------------------------------------------------------------------
+

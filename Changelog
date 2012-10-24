@@ -1,0 +1,70 @@
+1.3.17
+------
+   Allow any number of retries, instead of only up to 3.
+
+   Add ruser option, to authenticate as PAM_RUSER instead of PAM_USER,
+   to allow applications such as 'su' to authenticate as the real user.
+   Patch from David Mitchell.
+
+   Add 'localifdown' option.
+
+1.3.16
+------
+   Memory handling fixes, which caused the module to not work on RH9.0
+
+   Added dummy pam_sm_acct_mgmt() function, which is needed by pppd 2.4
+
+   Increase the allowed length of user names
+
+1.3.15
+------
+  Bug fix: don't try to free() static storage when using skip_passwd.
+
+  Implement retry option.
+
+1.3.14
+------
+  Solaris 8 changed their header files for PAM.
+  Bug fix to work on HURD: Don't use PATH_MAX.
+
+1.3.13
+------
+  Fix a bug where *no* module options would prevent it from finding
+  the configuration file.  Jon Nelson <jnelson@securepipe.com>
+
+1.3.12
+------
+  Solaris helpfully passes argc==1 and argv==NULL to the function
+  pam_private_session().  So we've got to check for that ridiculous
+  condition.
+  Based on comments from "David Black" <dblack@angara.com>
+
+  Check that the response packet ID matches the request ID.
+  Based on a patch from Leon Vernikov <vernikov@cisco.com>
+
+  Use Calling-Station-Id (string), instead of Login-IP-Host (IP address)
+  for the name of the host the user is logging in from.
+  Comments from Mike Smith <powertec@beeb.net>
+
+  Fix for a buffer overflow from Vesselin Atanasov <vesselin@bgnet.bg>
+
+  miscellanous bug fixes.  Don't add password to accounting requests;
+  log more errors; add NAS-Port and NAS-Port-Type attributes to ALL
+  packets.
+
+  Some patches based on input from Grzegorz Paszka <Grzegorz.Paszka@pik-net.pl>
+
+1.3.11
+------
+
+  Bug fixes from Jon Nelson <jnelson@securepipe.com>
+
+  Bug fixes from robert.hendrickx@smals-mvm.be
+
+  More debugging messages.
+
+1.3.10
+------
+
+If no password is given, then add a blank password to the outgoing request.
+This change ensures that the outgoing packet is RFC compliant.

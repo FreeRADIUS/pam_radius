@@ -1,0 +1,15 @@
+------------------------------------------------------------
+
+  Note that root won't be able to change anyone's passwords via this
+method, as RADIUS doesn't support the notion of root.
+
+------------------------------------------------------------
+
+  Add in pam_set_data && pam_get_data to keep track of which RADIUS
+  server we were talking to, and what the session_time was.
+
+  Oddly enough, the session_time information seems to be happy to be
+  a 'static', but the radius_server_t *live_server doesn't.  It works
+  for login, is re-used for open_session, but is ignored for close_session.
+
+------------------------------------------------------------

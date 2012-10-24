@@ -1,0 +1,114 @@
+**********************************************************************
+ Redhat Linux 4.2 (PAM 0.54)
+**********************************************************************
+
+  make.
+
+  Copy 'pam_radius_auth.so' to /lib/security/pam_radius_auth.so
+
+  In /etc/pam.conf, add the line:
+
+login   auth       sufficient   /lib/security/pam_radius_auth.so
+
+  AFTER
+
+login   auth       required     /lib/security/pam_securetty.so
+
+  and BEFORE
+
+login   auth       required     /lib/security/pam_unix_auth.so
+
+  i.e.
+
+login   auth       required     /lib/security/pam_securetty.so
+login   auth       sufficient   /lib/security/pam_radius_auth.so
+login   auth       required     /lib/security/pam_unix_auth.so
+
+
+**********************************************************************
+ Redhat Linux > 5.0
+**********************************************************************
+
+  make.
+
+  Copy 'pam_radius_auth.so' to /lib/security/pam_radius_auth.so
+
+  In the per-application configuration (/etc/pam.d/application) add:
+
+auth       sufficient   /lib/security/pam_radius_auth.so
+
+  AFTER
+
+auth       required     /lib/security/pam_securetty.so
+
+  and BEFORE
+
+auth       required     /lib/security/pam_unix_auth.so
+
+  i.e.
+
+auth       required     /lib/security/pam_securetty.so
+auth       sufficient   /lib/security/pam_radius_auth.so
+auth       required     /lib/security/pam_unix_auth.so
+
+
+**********************************************************************
+ Solaris 2.6
+**********************************************************************
+
+  make.
+
+  Copy 'pam_radius_auth.so' to /usr/lib/security/pam_radius_auth.so.1
+
+  in /etc/pam.conf, add the line:
+
+login  auth       sufficient   /usr/lib/security/pam_radius_auth.so.1
+
+  BEFORE
+
+login   auth       required     /usr/lib/security/pam_unix_auth.so.1
+
+  You will probably also have to add the lines:
+
+telnet auth        sufficient  /usr/lib/security/pam_radius_auth.so.1
+telnet auth        required    /usr/lib/security/pam_unix.so.1
+
+  in order to perform network logins.
+
+----------------------------------------------------------------------
+
+  Password change requests are pretty much the same.  Add a line like:
+
+passwd  password   sufficient   /lib/security/pam_radius_auth.so
+
+  And you're set.
+
+  Note that password change requests will NOT work for RADIUS users
+using challenge-response authentication.
+
+----------------------------------------------------------------------
+
+  If you're familiar with PAM, configuring RADIUS authentication for
+other applications should be straightforward.
+
+  Note that you should be *very* careful when configuring users who
+use RADIUS challenge-response.  They should *not* have a Unix password
+defined, or the challenge-response token card may become meaningless.
+
+  Users who have have a RADIUS challenge-response configuration must
+enter an initial password, unless 'skip_passwd' (see below) is
+defined.  The password they enter may not be blank or empty.
+
+----------------------------------------------------------------------
+
+  You will need a server configuration file.  An example is given in
+the file pam_radius_auth.conf.  You will need to copy this file to
+/etc/raddb/server.  The file MUST be secure!  i.e.
+
+chown root /etc/raddb
+chmod go-rwx /etc/raddb
+chmod go-rwx /etc/raddb/server
+
+  See 'USAGE' for details of the configuration file.
+
+----------------------------------------------------------------------
