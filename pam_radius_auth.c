@@ -252,6 +252,63 @@ static UINT4 get_ipaddr(char *host) {
   return(ntohl(*(UINT4 *)hp->h_addr));
 }
 
+int dup_addrinfo(struct addrinfo **pptr_dup_addrinfo, struct addrinfo *ptr_addrinfo)
+{
+	int result = 0;
+	struct addrinfo *ptr_tmp_addrinfo;
+	struct addrinfo *ptr_tmp_dup_addrinfo = NULL;;
+	struct addrinfo *ptr_tmp_cur_addrinfo = NULL;;
+
+	*pptr_dup_addrinfo = NULL;
+	for (ptr_tmp_addrinfo = ptr_addrinfo; ptr_tmp_addrinfo != NULL; ptr_tmp_addrinfo = ptr_tmp_addrinfo->ai_next) {
+		ptr_tmp_dup_addrinfo = malloc(sizeof(struct addrinfo));
+		if (ptr_tmp_dup_addrinfo == NULL) {
+			continue;
+		}
+		memset(ptr_tmp_dup_addrinfo, 0, sizeof(struct addrinfo));
+
+		if (ptr_tmp_addrinfo->ai_addr == NULL || ptr_tmp_addrinfo->ai_addrlen <= 0) {
+			ptr_tmp_dup_addrinfo->ai_addr = NULL;
+		} else {
+			ptr_tmp_dup_addrinfo->ai_addr = malloc(ptr_tmp_addrinfo->ai_addrlen);
+			memcpy(ptr_tmp_dup_addrinfo->ai_addr, ptr_tmp_addrinfo->ai_addr, ptr_tmp_addrinfo->ai_addrlen);
+		}
+		ptr_tmp_dup_addrinfo->ai_addrlen = ptr_tmp_addrinfo->ai_addrlen;
+		if (ptr_tmp_addrinfo->ai_canonname != NULL) {
+			ptr_tmp_dup_addrinfo->ai_canonname = strdup(ptr_tmp_addrinfo->ai_canonname);
+		} else {
+			ptr_tmp_dup_addrinfo->ai_canonname = NULL;
+		}
+		ptr_tmp_dup_addrinfo->ai_family = ptr_tmp_addrinfo->ai_family;
+		ptr_tmp_dup_addrinfo->ai_flags = ptr_tmp_addrinfo->ai_flags;
+		ptr_tmp_dup_addrinfo->ai_protocol = ptr_tmp_addrinfo->ai_protocol;
+		ptr_tmp_dup_addrinfo->ai_socktype = ptr_tmp_addrinfo->ai_socktype;
+		ptr_tmp_dup_addrinfo->ai_next = NULL;
+		
+		if (*pptr_dup_addrinfo == NULL) {
+			*pptr_dup_addrinfo = ptr_tmp_dup_addrinfo;
+		} else {
+			ptr_tmp_cur_addrinfo->ai_next = ptr_tmp_dup_addrinfo;
+		}
+		ptr_tmp_cur_addrinfo = ptr_tmp_dup_addrinfo;
+	}
+	return result;
+}
+
+void free_addrinfo(struct addrinfo **pptr_addrinfo)
+{
+	if (*pptr_addrinfo != NULL) {
+		if ((*pptr_addrinfo)->ai_addr != NULL) {
+			free((*pptr_addrinfo)->ai_addr);
+		}
+		if ((*pptr_addrinfo)->ai_canonname != NULL) {
+			free((*pptr_addrinfo)->ai_canonname);
+		}
+		free(*pptr_addrinfo);
+		*pptr_addrinfo = NULL;
+	}
+}
+
 /*
  * take server->hostname, and convert it to server->ip and server->port
  */
@@ -260,55 +317,56 @@ host2server(radius_server_t *server)
 {
   char *p;
   int ctrl = 1; /* for DPRINT */
-  
-  if ((p = strchr(server->hostname, ':')) != NULL) {
-    *(p++) = '\0';		/* split the port off from the host name */
-  }
-  
-  if ((server->ip.s_addr = get_ipaddr(server->hostname)) == ((UINT4)0)) {
-    DPRINT(LOG_DEBUG, "DEBUG: get_ipaddr(%s) returned 0.\n", server->hostname);
-    return PAM_AUTHINFO_UNAVAIL;
-  }
+  char *ptr_host = NULL;
+  char *ptr_service = NULL;
+  char *ptr_hostname;
+  int i;
+  struct addrinfo hintsaddr;
+  struct addrinfo *peeraddrs;
 
-  /*
-   *  If the server port hasn't already been defined, go get it.
-   */
-  if (!server->port) {
-    if (p && isdigit(*p)) {	/* the port looks like it's a number */
-      unsigned int i = atoi(p) & 0xffff;
-      
-      if (!server->accounting) {
-	server->port = htons((u_short) i);
-      } else {
-	server->port = htons((u_short) (i + 1));
-      }
-    } else {			/* the port looks like it's a name */
-      struct servent *svp;
-      
-      if (p) {			/* maybe it's not "radius" */
-	svp = getservbyname (p, "udp");
-	/* quotes allow distinction from above, lest p be radius or radacct */
-	DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %d.\n", p, svp);
-	*(--p) = ':';		/* be sure to put the delimiter back */
-      } else {
-	if (!server->accounting) {
-	  svp = getservbyname ("radius", "udp");
-	  DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %d.\n", svp);
-	} else {
-	  svp = getservbyname ("radacct", "udp");
-	  DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %d.\n", svp);
-	}
-      }
-      
-      if (svp == (struct servent *) 0) {
-	/* debugging above... */
-	return PAM_AUTHINFO_UNAVAIL;
-      }
-      
-      server->port = svp->s_port;
-    }
+  ptr_hostname = strdup(server->hostname);
+  ptr_host = ptr_hostname;
+  /* If the host name may be catenated ipv6-string with port, go get it. */
+  if (*ptr_host == '[') {
+	  ptr_host ++;
+	  p = strchr(ptr_host, ']');
+	  *(p++) = '\0';		/* split the port off from the host name */
+	  ptr_service = strchr(p, ':');
+	  ptr_service++;
+  } else {
+      /* Checks the host name for ipv6. */
+	  i = 0;
+	  for (p = ptr_host; *p != '\0'; p ++) {
+		  if (*p == ':') {
+			  i ++;
+		  }
+	  }
+	  /* If the host name may be ipv4-string, go get it. */
+	  if (i < 2) {
+		  if ((ptr_service = strchr(ptr_host, ':')) != NULL) {
+		    *(ptr_service++) = '\0';		/* split the port off from the host name */
+		  }
+	  }
   }
-
+  if (ptr_service == NULL) {
+	  if (!server->accounting) {
+		  ptr_service = "radius";
+	  } else {
+		  ptr_service = "radacct";
+	  }
+  }
+  
+  /* Resolves host with service. */
+  memset(&hintsaddr, 0, sizeof(struct addrinfo));
+  hintsaddr.ai_family = AF_UNSPEC;
+  hintsaddr.ai_socktype = SOCK_DGRAM;
+  if ((i = getaddrinfo(ptr_host, ptr_service, &hintsaddr, &peeraddrs)) != 0) {
+	  DPRINT(LOG_DEBUG, "DEBUG: getaddrinfo(%s, %s) returned %d.\n", ptr_host, ptr_service, i);
+	  return PAM_AUTHINFO_UNAVAIL;
+  }
+  dup_addrinfo(&server->addressinfo, peeraddrs);
+  freeaddrinfo(peeraddrs);
+  free(ptr_hostname);
   return PAM_SUCCESS;
 }
 
@@ -641,7 +699,7 @@ initialize(radius_conf_t *conf, int accounting)
       server->hostname = strdup(hostname);
       server->secret = strdup(secret);
       server->accounting = accounting;
-      server->port = 0;
+      server->addressinfo = NULL;
 
       if ((timeout < 1) || (timeout > 60)) {
 	server->timeout = 3;
@@ -699,7 +757,9 @@ static void
 build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char *password, radius_conf_t *conf)
 {
   char hostname[256];
-  UINT4 ipaddr;
+  struct addrinfo hintsaddr;
+  struct addrinfo *peeraddrs;
+  struct addrinfo *peeraddr;
   
   hostname[0] = '\0';
   gethostname(hostname, sizeof(hostname) - 1);
@@ -725,22 +785,31 @@ build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char *password, r
     add_password(request, PW_PASSWORD, "", conf->server->secret);
   }
 
-  /* the packet is from localhost if on localhost, to make configs easier */
-  if ((conf->server->ip.s_addr == ntohl(0x7f000001)) || (!hostname[0])) {
-    ipaddr = 0x7f000001;
-  } else {
-    struct hostent *hp;
-    
-    if ((hp = gethostbyname(hostname)) == (struct hostent *) NULL) {
-      ipaddr = 0x00000000;	/* no client IP address */
-    } else {
-      ipaddr = ntohl(*(UINT4 *) hp->h_addr); /* use the first one available */
-    }
+  if (hostname[0] == '\0') {
+	  strncpy(hostname, "127.0.0.1", sizeof(hostname));
   }
 
   /* If we can't find an IP address, then don't add one */
-  if (ipaddr) {
-    add_int_attribute(request, PW_NAS_IP_ADDRESS, ipaddr);
+  if (hostname[0] != '\0') {
+	  hintsaddr.ai_family = AF_UNSPEC;
+	  hintsaddr.ai_socktype = SOCK_DGRAM;
+	  if (getaddrinfo(hostname, NULL, &hintsaddr, &peeraddrs) == 0) {
+		  for (peeraddr = peeraddrs; peeraddr != NULL; peeraddr = peeraddr->ai_next) {
+			  switch (peeraddr->ai_family) {
+			  case AF_INET:
+				  add_attribute(request, PW_NAS_IP_ADDRESS,
+						  (unsigned char *)&((struct sockaddr_in *)peeraddr->ai_addr)->sin_addr, 4);
+				  break;
+			  case AF_INET6:
+				  add_attribute(request, PW_NAS_IPV6_ADDRESS,
+						  (unsigned char *)&((struct sockaddr_in6 *)peeraddr->ai_addr)->sin6_addr, 16);
+				  break;
+			  default:
+				  break;
+			  }
+		  }
+		  freeaddrinfo(peeraddrs);
+	  }
   }
 
   /* There's always a NAS identifier */
@@ -766,15 +835,16 @@ static int
 talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *response,
             char *password, char *old_password, int tries)
 {
-  int salen, total_length;
+  int total_length;
   fd_set set;
   struct timeval tv;
   time_t now, end;
   int rcode;
-  struct sockaddr saremote;
-  struct sockaddr_in *s_in = (struct sockaddr_in *) &saremote;
+  struct addrinfo *cur_addrinfo;
+  struct sockaddr_in6 saremote;
+  socklen_t salen = sizeof(struct sockaddr_in6);
   radius_server_t *server = conf->server;
-  int ok;
+  int ok = TRUE;
   int server_tries;
   int retval;
 
@@ -804,154 +874,186 @@ talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *response,
     }
 
     /* set up per-server IP && port configuration */
-    memset ((char *) s_in, '\0', sizeof(struct sockaddr));
-    s_in->sin_family = AF_INET;
-    s_in->sin_addr.s_addr = htonl(server->ip.s_addr);
-    s_in->sin_port = server->port;
     total_length = ntohs(request->length);
     
     if (!password) { 		/* make an RFC 2139 p6 request authenticator */
       get_accounting_vector(request, server);
     }
 
-    server_tries = tries;
-send:
-    /* send the packet */
-    if (sendto(conf->sockfd, (char *) request, total_length, 0,
-	       &saremote, sizeof(struct sockaddr_in)) < 0) {
-      _pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
-	       server->hostname, strerror(errno));
-      ok = FALSE;
-      goto next;		/* skip to the next server */
-    }
+	for (cur_addrinfo = server->addressinfo
+			; cur_addrinfo != NULL
+			; cur_addrinfo = cur_addrinfo->ai_next) {
+		
+		struct sockaddr_in peer_sockaddr;
+		struct sockaddr_in6 peer_sockaddr6;
+		const struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+		u_short local_port;
+		struct sockaddr *sockaddr_ptr; 
+		int sockaddr_len;
+		int sockfd;
+		
+		ok = TRUE;
+		if (cur_addrinfo->ai_family != AF_INET && cur_addrinfo->ai_family != AF_INET6) {
+			ok = FALSE;
+			continue;
+		}
+		/* send the packet */
+		sockfd = socket(cur_addrinfo->ai_family,
+				cur_addrinfo->ai_socktype,
+				cur_addrinfo->ai_protocol);
+		if (sockfd < 0) {
+			ok = FALSE;
+			continue;
+		}
 
-    /* ************************************************************ */
-    /* Wait for the response, and verify it. */
-    salen = sizeof(struct sockaddr);
-    tv.tv_sec = server->timeout; /* wait for the specified time */
-    tv.tv_usec = 0;
-    FD_ZERO(&set);		/* clear out the set */
-    FD_SET(conf->sockfd, &set);	/* wait only for the RADIUS UDP socket */
-    
-    time(&now);
-    end = now + tv.tv_sec;
-    
-    /* loop, waiting for the select to return data */
-    ok = TRUE;
-    while (ok) {
+		/*
+		 *  Use our process ID as a local port for RADIUS.
+		 */
+		local_port = (getpid() & 0x7fff) + 1024;
+		do {
+			local_port++;
+			if (cur_addrinfo->ai_family == AF_INET) {
+				peer_sockaddr.sin_family = cur_addrinfo->ai_family;
+				peer_sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+				peer_sockaddr.sin_port = htons(local_port);
+				sockaddr_ptr = (struct sockaddr *)&peer_sockaddr;
+				sockaddr_len = sizeof(struct sockaddr_in);
+			} else if (cur_addrinfo->ai_family == AF_INET6) {
+				peer_sockaddr6.sin6_family = cur_addrinfo->ai_family;
+				peer_sockaddr6.sin6_addr = in6addr_any;
+				peer_sockaddr6.sin6_port = htons(local_port);
+				sockaddr_ptr = (struct sockaddr *)&peer_sockaddr6;
+				sockaddr_len = sizeof(struct sockaddr_in6);
+			} else {
+				continue;
+			}
+		} while ((bind(sockfd, sockaddr_ptr, sockaddr_len) < 0) && 
+			   (local_port < 64000));		  
+		if (local_port >= 64000) {
+			close(sockfd);
+			_pam_log(LOG_ERR, "No open port we could bind to.");
+			continue;
+		}
 
-      rcode = select(conf->sockfd + 1, &set, NULL, NULL, &tv);
-
-      /* select timed out */
-      if (rcode == 0) {
-	_pam_log(LOG_ERR, "RADIUS server %s failed to respond",
-		 server->hostname);
-	if (--server_tries)
-	  goto send;
-	ok = FALSE;
-	break;			/* exit from the select loop */
-      } else if (rcode < 0) {
-
-	/* select had an error */
-	if (errno == EINTR) {	/* we were interrupted */
-	  time(&now);
-	  
-	  if (now > end) {
-	    _pam_log(LOG_ERR, "RADIUS server %s failed to respond",
-		     server->hostname);
-	    if (--server_tries)
-	      goto send;
-	    ok = FALSE;
-	    break;			/* exit from the select loop */
-	  }
-	  
-	  tv.tv_sec = end - now;
-	  if (tv.tv_sec == 0) {	/* keep waiting */
-	    tv.tv_sec = 1;
-	  }
-
-	} else {		/* not an interrupt, it was a real error */
-	  _pam_log(LOG_ERR, "Error waiting for response from RADIUS server %s: %s",
-		   server->hostname, strerror(errno));
-	  ok = FALSE;
-	  break;
+		if (sendto(sockfd, (char *) request, total_length, 0,
+				cur_addrinfo->ai_addr, cur_addrinfo->ai_addrlen) < 0) {
+			_pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
+					server->hostname, strerror(errno));
+			close(sockfd);
+			continue;
+		}
+	    server_tries = tries;
+		do {
+		    tv.tv_sec = server->timeout; /* wait for the specified time */
+		    tv.tv_usec = 0;
+		    FD_ZERO(&set);		/* clear out the set */
+		    FD_SET(sockfd, &set);	/* wait only for the RADIUS UDP socket */
+		    rcode = select(sockfd + 1, &set, NULL, NULL, &tv);
+		    /* select timed out */
+		    if (rcode == 0) {
+		    	_pam_log(LOG_ERR, "RADIUS server %s failed to respond(time out %d(sec))",
+		    			server->hostname, server->timeout);
+		    	if (--server_tries) {
+		    		continue;
+		    	}
+		    	ok = FALSE;
+		    	break;			/* exit from the select loop */
+		    } else if (rcode < 0) {
+		    	/* select had an error */
+		    	if (errno == EINTR) {	/* we were interrupted */
+		    		time(&now);
+		    		if (now > end) {
+		    			_pam_log(LOG_ERR, "RADIUS server %s failed to respond",
+		    				server->hostname);
+		    			if (--server_tries) {
+		    				continue;
+		    			}
+		    			ok = FALSE;
+		    			break;			/* exit from the select loop */
+		    		}
+		    		tv.tv_sec = end - now;
+		    		if (tv.tv_sec == 0) {	/* keep waiting */
+		    			tv.tv_sec = 1;
+		    		}
+		    	} else {		/* not an interrupt, it was a real error */
+		    		_pam_log(LOG_ERR, "Error waiting for response from RADIUS server %s: %s",
+		    				server->hostname, strerror(errno));
+		    		ok = FALSE;
+		    		break;
+		    	}
+		    	/* the select returned OK */
+		    } else if (FD_ISSET(sockfd, &set)) {
+		    	/* try to receive some data */
+		    	if ((total_length = recvfrom(sockfd, (char *) response, BUFFER_SIZE, 0, (struct sockaddr *)&saremote, &salen)) < 0) {
+		    	  _pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
+		    		   server->hostname, strerror(errno));
+		    	  ok = FALSE;
+		    	  break;
+		    	  /* there's data, see if it's valid */
+		    	}
+		    }
+		} while (0);
+		close(sockfd);
+		if (ok != FALSE) {
+			break;
+		}
 	}
-
-	/* the select returned OK */
-      } else if (FD_ISSET(conf->sockfd, &set)) {
-
-	/* try to receive some data */
-	if ((total_length = recvfrom(conf->sockfd, (char *) response,
-				     BUFFER_SIZE,
-				     0, &saremote, &salen)) < 0) {
-	  _pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
-		   server->hostname, strerror(errno));
-	  ok = FALSE;
-	  break;
-
-	  /* there's data, see if it's valid */
-	} else {
-	  char *p = server->secret;
-	  
-	  if ((ntohs(response->length) != total_length) ||
-	      (ntohs(response->length) > BUFFER_SIZE)) {
-	    _pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
-		     server->hostname);
-	    ok = FALSE;
-	    break;
-	  }
-
-	  /* Check if we have the data OK.  We should also check request->id */
-
-	  if (password) {
-	    if (old_password) {
+	do {
+		if (ok == TRUE) {
+			char *p = server->secret;
+			if ((ntohs(response->length) != total_length) ||
+					(ntohs(response->length) > BUFFER_SIZE)) {
+				_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
+						server->hostname);
+				ok = FALSE;
+				break;
+			}
+			/* Check if we have the data OK.  We should also check request->id */
+			if (password) {
+				if (old_password) {
 #ifdef LIVINGSTON_PASSWORD_VERIFY_BUG_FIXED
-	      p = old_password;	/* what it should be */
-#else
-	      p = "";		/* what it really is */
+					p = old_password;	/* what it should be */
+#else  next:
+
+					p = "";		/* what it really is */
 #endif
-	    }
-	    /* 
-	     * RFC 2139 p.6 says not do do this, but the Livingston 1.16
-	     * server disagrees.  If the user says he wants the bug, give in.
-	     */
-	  } else {		/* authentication request */
-	    if (conf->accounting_bug) {
-	      p = "";
-	    }
-	  }
-	    
-	  if (!verify_packet(p, response, request)) {
-	    _pam_log(LOG_ERR, "packet from RADIUS server %s fails verification: The shared secret is probably incorrect.",
-		     server->hostname);
-	    ok = FALSE;
-	    break;
-	  }
-
-	  /*
-	   * Check that the response ID matches the request ID.
-	   */
-	  if (response->id != request->id) {
-	    _pam_log(LOG_WARNING, "Response packet ID %d does not match the request packet ID %d: verification of packet fails", response->id, request->id);
-	      ok = FALSE;
-	    break;
-	  }
-	}
-	
-	/*
-	 * Whew!  The select is done.  It hasn't timed out, or errored out.
-	 * It's our descriptor.  We've got some data.  It's the right size.
-	 * The packet is valid.
-	 * NOW, we can skip out of the select loop, and process the packet
-	 */
-	break;
-      }
-      /* otherwise, we've got data on another descriptor, keep select'ing */
-    }
-
+				}
+				/* 
+				 * RFC 2139 p.6 says not do do this, but the Livingston 1.16
+				 * server disagrees.  If the user says he wants the bug, give in.
+				 */
+			} else {		/* authentication request */
+				if (conf->accounting_bug) {
+					p = "";
+				}
+			}
+			if (!verify_packet(p, response, request)) {
+				_pam_log(LOG_ERR, "packet from RADIUS server %s fails verification: The shared secret is probably incorrect.",
+						server->hostname);
+				ok = FALSE;
+				break;
+			}
+			/*
+			 * Check that the response ID matches the request ID.
+			 */
+			if (response->id != request->id) {
+				_pam_log(LOG_WARNING, "Response packet ID %d does not match the request packet ID %d: verification of packet fails", response->id, request->id);
+				ok = FALSE;
+				break;
+			}
+			/*
+			 * Whew!  The select is done.  It hasn't timed out, or errored out.
+			 * It's our descriptor.  We've got some data.  It's the right size.
+			 * The packet is valid.
+			 * NOW, we can skip out of the select loop, and process the packet
+			 */
+			break;
+		}
+		/* otherwise, we've got data on another descriptor, keep select'ing */
+	} while (0);
     /* go to the next server if this one didn't respond */
   next:
-    if (!ok) {
+    if (ok == FALSE) {
       radius_server_t *old;	/* forget about this server */
       
       old = server;
@@ -960,6 +1062,7 @@ send:
 
       _pam_forget(old->secret);
       free(old->hostname);
+      free_addrinfo(&old->addressinfo);
       free(old);
 
       if (server) {		/* if there's more servers to check */
@@ -1137,7 +1240,6 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
 
   if(password) {
     password = strdup(password);
-    DPRINT(LOG_DEBUG, "Got password %s", password);
   }
 
   /* no previous password: maybe get one from the user */
