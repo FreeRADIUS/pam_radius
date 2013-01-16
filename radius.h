@@ -31,6 +31,14 @@
 #ifndef RADIUS_H
 #define RADIUS_H
 
+/*
+#ifdef __x86_64__
+#include <libjava/i386-signal.h>
+#else
+#include <libjava/x86_64-signal.h>
+#endif
+*/
+
 #define AUTH_VECTOR_LEN		16
 #define AUTH_PASS_LEN		16
 #define AUTH_STRING_LEN		128	/* maximum of 254 */

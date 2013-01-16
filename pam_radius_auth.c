@@ -1,61 +1,15 @@
-/*
- * $Id: pam_radius_auth.c,v 1.39 2007/03/26 05:35:31 fcusack Exp $
- * pam_radius_auth
- *      Authenticate a user via a RADIUS session
- *
- * 0.9.0 - Didn't compile quite right.
- * 0.9.1 - Hands off passwords properly.  Solaris still isn't completely happy
- * 0.9.2 - Solaris now does challenge-response.  Added configuration file
- *         handling, and skip_passwd field
- * 1.0.0 - Added handling of port name/number, and continue on select
- * 1.1.0 - more options, password change requests work now, too.
- * 1.1.1 - Added client_id=foo (NAS-Identifier), defaulting to PAM_SERVICE
- * 1.1.2 - multi-server capability.
- * 1.2.0 - ugly merger of pam_radius.c to get full RADIUS capability
- * 1.3.0 - added my own accounting code.  Simple, clean, and neat.
- * 1.3.1 - Supports accounting port (oops!), and do accounting authentication
- * 1.3.2 - added support again for 'skip_passwd' control flag.
- * 1.3.10 - ALWAYS add Password attribute, to make packets RFC compliant.
- * 1.3.11 - Bug fixes by Jon Nelson <jnelson@securepipe.com>
- * 1.3.12 - miscellanous bug fixes.  Don't add password to accounting
- *          requests; log more errors; add NAS-Port and NAS-Port-Type
- *          attributes to ALL packets.  Some patches based on input from 
- *          Grzegorz Paszka <Grzegorz.Paszka@pik-net.pl>
- * 1.3.13 - Always update the configuration file, even if we're given
- *          no options.  Patch from Jon Nelson <jnelson@securepipe.com>
- * 1.3.14 - Don't use PATH_MAX, so it builds on GNU Hurd.
- * 1.3.15 - Implement retry option, miscellanous bug fixes.
- * 1.3.16 - Miscellaneous fixes (see CVS for history)
- * 1.3.17 - Security fixes
- *
- *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
- * The original pam_radius.c code is copyright (c) Cristian Gafton, 1996,
- *                                             <gafton@redhat.com>
- *
- * Some challenge-response code is copyright (c) CRYPTOCard Inc, 1998.
- *                                              All rights reserved.
- */
-
 #define PAM_SM_AUTH
 #define PAM_SM_PASSWORD
 #define PAM_SM_SESSION
 
 #include <limits.h>
+#include <unistd.h>
+#include <string.h>
 #include <errno.h>
+//#include <pcreposix.h>
+#include <regex.h>
+
+
 
 #ifdef sun
 #include <security/pam_appl.h>
@@ -63,11 +17,43 @@
 #include <security/pam_modules.h>
 
 #include "pam_radius_auth.h"
+#include <stdio.h>
+#include <mysql.h>
 
+
+//if ( SET_STATIC_PARAM )
+//  {
+    char var_RADIUS_SERVER[64] = STATIC_PARAM_RADIUS_SERVER;
+    //strcpy(var_RADIUS_SERVER, STATIC_PARAM_RADIUS_SERVER);
+    char var_RADIUS_SECRET[128] = STATIC_PARAM_RADIUS_SECRET;
+    //strcpy(var_RADIUS_SECRET, STATIC_PARAM_RADIUS_SECRET);
+    int var_RADIUS_TIMEOUT = STATIC_PARAM_RADIUS_TIMEOUT;
+    char var_MYSQL_SERVER[64] = STATIC_PARAM_MYSQL_SERVER;
+    //strcpy(var_MYSQL_SERVER, STATIC_PARAM_MYSQL_SERVER);
+    char var_MYSQL_PORT[8] = STATIC_PARAM_MYSQL_PORT;
+    //strcpy(var_MYSQL_PORT, STATIC_PARAM_MYSQL_PORT);
+    char var_MYSQL_USER[64] = STATIC_PARAM_MYSQL_USER;
+    //strcpy(var_MYSQL_USER, STATIC_PARAM_MYSQL_USER);
+    char var_MYSQL_PASS[64] = STATIC_PARAM_MYSQL_PASS;
+    //strcpy(var_MYSQL_PASS, STATIC_PARAM_MYSQL_PASS);
+    char var_MYSQL_DB[64] = STATIC_PARAM_MYSQL_DB;
+    //strcpy(var_MYSQL_DB, STATIC_PARAM_MYSQL_DB);
+    char var_USERS_PATTERN[256] = STATIC_PARAM_USERS_PATTERN;
+    //strcpy(var_USERS_PATTERN, STATIC_PARAM_USERS_PATTERN);
+    char var_MYSQL_TABLE[64] = STATIC_PARAM_MYSQL_TABLE;
+    char var_MYSQL_FIELD[64] = STATIC_PARAM_MYSQL_FIELD;
+    int var_DEBUG_MODE = 0;
+//  }
+
+
+//#define NULL 0
 #define DPRINT if (ctrl & PAM_DEBUG_ARG) _pam_log
 
-/* internal data */
+
+
+/* @var string pam_module_name - module name */
 static CONST char *pam_module_name = "pam_radius_auth";
+/* @var string conf_file - file name and path to configure */
 static char conf_file[BUFFER_SIZE]; /* configuration file */
 
 /* we need to save these from open_session to close_session, since
@@ -77,8 +63,13 @@ static char conf_file[BUFFER_SIZE]; /* configuration file */
 static radius_server_t *live_server = NULL;
 static time_t session_time;
 
-/* logging */
-static void _pam_log(int err, CONST char *format, ...)
+/**
+  * save log to syslog system
+  * @param int pam_module_line - line where event was raised
+  * @param int err - type event (LOG_WARNING, LOG_ERR, LOG_DEBUG)
+  * @param string format - 
+  */
+static void _pam_log(int pam_module_line, int err, CONST char *format, ...)
 {
     va_list args;
     char buffer[BUFFER_SIZE];
@@ -86,13 +77,14 @@ static void _pam_log(int err, CONST char *format, ...)
     va_start(args, format);
     vsprintf(buffer, format, args);
     /* don't do openlog or closelog, but put our name in to be friendly */
-    syslog(err, "%s: %s", pam_module_name, buffer);
+    if ( var_DEBUG_MODE ) { syslog(err, "%s[%d]: %s", pam_module_name, pam_module_line, buffer); }
     va_end(args);
 }
 
 /* argument parsing */
 static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 {
+  _pam_log(__LINE__, LOG_DEBUG, "run function %s([%d], argv, conf)", __FUNCTION__, argc);
   int ctrl=0;
 
   memset(conf, 0, sizeof(radius_conf_t)); /* ensure it's initialized */
@@ -108,7 +100,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
   
   /* step through arguments */
   for (ctrl=0; argc-- > 0; ++argv) {
-    
+
     /* generic options */
     if (!strncmp(*argv,"conf=",5)) {
       strcpy(conf_file,*argv+5);
@@ -130,9 +122,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
     } else if (!strncmp(*argv, "client_id=", 10)) {
       if (conf->client_id) {
-	_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
+        _pam_log(__LINE__, LOG_WARNING, "ignoring duplicate '%s'", *argv);
       } else {
-	conf->client_id = (char *) *argv+10; /* point to the client-id */
+        conf->client_id = (char *) *argv+10; /* point to the client-id */
       }
     } else if (!strcmp(*argv, "accounting_bug")) {
       conf->accounting_bug = TRUE;
@@ -143,9 +135,10 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
     } else if (!strcmp(*argv, "debug")) {
       ctrl |= PAM_DEBUG_ARG;
       conf->debug = 1;
-      
+      var_DEBUG_MODE = PAM_DEBUG_ARG;
+
     } else {
-      _pam_log(LOG_WARNING, "unrecognized option '%s'", *argv);
+      _pam_log(__LINE__, LOG_WARNING, "unrecognized option '%s'", *argv);
     }
   }
   
@@ -266,7 +259,7 @@ host2server(radius_server_t *server)
   }
   
   if ((server->ip.s_addr = get_ipaddr(server->hostname)) == ((UINT4)0)) {
-    DPRINT(LOG_DEBUG, "DEBUG: get_ipaddr(%s) returned 0.\n", server->hostname);
+    DPRINT(__LINE__, LOG_DEBUG, "get_ipaddr(%s) returned 0.\n", server->hostname);
     return PAM_AUTHINFO_UNAVAIL;
   }
 
@@ -288,15 +281,15 @@ host2server(radius_server_t *server)
       if (p) {			/* maybe it's not "radius" */
 	svp = getservbyname (p, "udp");
 	/* quotes allow distinction from above, lest p be radius or radacct */
-	DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %d.\n", p, svp);
+	DPRINT(__LINE__, LOG_DEBUG, "getservbyname('%s', udp) returned %d.\n", p, svp);
 	*(--p) = ':';		/* be sure to put the delimiter back */
       } else {
 	if (!server->accounting) {
 	  svp = getservbyname ("radius", "udp");
-	  DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %d.\n", svp);
+	  DPRINT(__LINE__, LOG_DEBUG, "getservbyname(radius, udp) returned %d.\n", svp);
 	} else {
 	  svp = getservbyname ("radacct", "udp");
-	  DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %d.\n", svp);
+	  DPRINT(__LINE__, LOG_DEBUG, "getservbyname(radacct, udp) returned %d.\n", svp);
 	}
       }
       
@@ -580,11 +573,17 @@ cleanup(radius_server_t *server)
 static int
 initialize(radius_conf_t *conf, int accounting)
 {
+
+  _pam_log(__LINE__, LOG_ERR, "run function %s(conf, [%d])", __FUNCTION__, accounting);
   struct sockaddr salocal;
   u_short local_port;
   char hostname[BUFFER_SIZE];
   char secret[BUFFER_SIZE];
-  
+  char param[BUFFER_SIZE];
+  char value[BUFFER_SIZE];
+
+  int bRadiusConf = 0; /* 0, 1 - config for coinnect Radius server; 2 - config for MySQL server */
+
   char buffer[BUFFER_SIZE];
   char *p;
   FILE *fserver;
@@ -593,9 +592,29 @@ initialize(radius_conf_t *conf, int accounting)
   int timeout;
   int line = 0;
 
-  /* the first time around, read the configuration file */
+
+  if ( SET_STATIC_PARAM )
+    {
+      _pam_log(__LINE__, LOG_DEBUG, " set all option default (precompile)");
+	  radius_server_t *tmp;
+	  tmp = malloc(sizeof(radius_server_t));
+	  conf->server = tmp;
+	  server= tmp;      /* first time */
+	  server->hostname = strdup(var_RADIUS_SERVER);
+      server->secret = strdup(var_RADIUS_SECRET);
+      server->accounting = accounting;
+      server->port = 0;
+      if ( (var_RADIUS_TIMEOUT < 1) || (var_RADIUS_TIMEOUT > 60) )
+          { server->timeout = 3; }
+        else
+          { server->timeout = var_RADIUS_TIMEOUT; }
+      server->next = NULL;
+    }
+    else
+    {
+      /* the first time around, read the configuration file */
   if ((fserver = fopen (conf_file, "r")) == (FILE*)NULL) {
-    _pam_log(LOG_ERR, "Could not open configuration file %s: %s\n",
+    _pam_log(__LINE__, LOG_ERR, "Could not open configuration file %s: %s\n",
 	    conf_file, strerror(errno));
     return PAM_ABORT;
   }
@@ -620,41 +639,117 @@ initialize(radius_conf_t *conf, int accounting)
       continue;
     }
     
-    timeout = 3;
-    if (sscanf(p, "%s %s %d", hostname, secret, &timeout) < 2) {
-      _pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
-	       conf_file, line);
-      continue; /* invalid line */
-    } else {			/* read it in and save the data */
-      radius_server_t *tmp;
-      
-      tmp = malloc(sizeof(radius_server_t));
-      if (server) {
-	server->next = tmp;
-	server = server->next;
-      } else {
-	conf->server = tmp;
-	server= tmp;		/* first time */
+    if ( strncmp(p, "[server_radius]", 15) == 0 )
+      {
+        bRadiusConf = 1;
+        continue;
+        //strcpy(conf_file,*argv+5); 
       }
-      
-      /* sometime later do memory checks here */
-      server->hostname = strdup(hostname);
-      server->secret = strdup(secret);
-      server->accounting = accounting;
-      server->port = 0;
-
-      if ((timeout < 1) || (timeout > 60)) {
-	server->timeout = 3;
-      } else {
-	server->timeout = timeout;
+    if ( strncmp(p, "[server_mysql]", 14) == 0 )
+      {
+        bRadiusConf = 2;
+        continue;
       }
-      server->next = NULL;
-    }
+    /* @TODO проверить работу данной схемы */
+    if ( (0 == bRadiusConf) || (1 == bRadiusConf) )
+      {
+        timeout = 3;
+        if ( sscanf(p, "%s %s %d", hostname, secret, &timeout) < 2)
+          {
+            _pam_log(__LINE__, LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret", conf_file, line);
+            continue; /* invalid line */
+          } 
+         else 
+           {			/* read it in and save the data */
+            _pam_log(__LINE__, LOG_DEBUG, " set option for Radius server : %s ******* %d", hostname, timeout);
+            radius_server_t *tmp;
+            tmp = malloc(sizeof(radius_server_t));
+            if (server) {
+              server->next = tmp;
+              server = server->next;
+            } else {
+              conf->server = tmp;
+              server= tmp;		/* first time */
+            }
+            /* sometime later do memory checks here */
+            server->hostname = strdup(hostname);
+            server->secret = strdup(secret);
+            server->accounting = accounting;
+            server->port = 0;
+            if ((timeout < 1) || (timeout > 60)) 
+                { server->timeout = 3; } 
+              else
+                { server->timeout = timeout; }
+            server->next = NULL;
+          }
+     } // END if ( (0 == bRadiusConf) || (1 == bRadiusConf) ).
+     else
+       {
+         //if ( sscanf(p, "%s=%s", param, value) < 2 )
+           if ( sscanf(p, "%[^=]=%[^\"\n]", param, value) < 2 )
+             {
+               _pam_log(__LINE__, LOG_ERR, "reading %s, line %d: Could not read [%s] param for MySQL server : [%s]=[%s]", conf_file, line, p, param, value);
+               continue;
+             }
+           else
+		     {
+			   _pam_log(__LINE__, LOG_DEBUG, "reading %s[%d]: [%s] : [%s]=[%s]", conf_file, line, p, param, value);
+			   if ( !strcmp(param, "MYSQL_SERVER") )
+			     {
+				strcpy(var_MYSQL_SERVER, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file MYSQL_SERVER=[%s]", value);
+				continue;
+			     }
+			   if ( !strcmp(param, "MYSQL_PORT") )
+			     {
+				strcpy(var_MYSQL_PORT, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file MYSQL_PORT=[%s]", value);
+				continue;
+			     }
+			   if ( !strcmp(param, "MYSQL_USER") )
+			     {
+				strcpy(var_MYSQL_USER, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file MYSQL_USER=[%s]", value);
+				continue;
+			     }
+			   if ( !strcmp(param, "MYSQL_PASS") )
+			     {
+				strcpy(var_MYSQL_PASS, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file MYSQL_PASS=[%s]", value);
+				continue;
+			     }
+			   if ( !strcmp(param, "MYSQL_DB") )
+			     {
+				strcpy(var_MYSQL_DB, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file MYSQL_DB=[%s]", value);
+				continue;
+			     }
+			   if ( !strcmp(param, "MYSQL_TABLE") )
+			     {
+				strcpy(var_MYSQL_TABLE, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file MYSQL_TABLE=[%s]", value);
+				continue;
+			     }
+			   if ( !strcmp(param, "MYSQL_FIELD") )
+			     {
+				strcpy(var_MYSQL_FIELD, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file MYSQL_FIELD=[%s]", value);
+				continue;
+			     }
+			   if ( !strcmp(param, "USERS_PATTERN") )
+			     {
+				strcpy(var_USERS_PATTERN, value);
+				_pam_log(__LINE__, LOG_DEBUG, " set option from file USERS_PATTERN=[%s]", value);
+				continue;
+			     }
+			 }
+       }
   }
   fclose(fserver);
+  } // END if ( SET_STATIC_PARAM )
   
   if (!server) {		/* no server found, die a horrible death */
-    _pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
+    _pam_log(__LINE__, LOG_ERR, "No RADIUS server found in configuration file %s\n",
 	     conf_file);
     return PAM_AUTHINFO_UNAVAIL;
   }
@@ -662,7 +757,7 @@ initialize(radius_conf_t *conf, int accounting)
   /* open a socket.  Dies if it fails */
   conf->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (conf->sockfd < 0) {
-    _pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", strerror(errno));
+    _pam_log(__LINE__, LOG_ERR, "Failed to open RADIUS socket: %s\n", strerror(errno));
     return PAM_AUTHINFO_UNAVAIL;
   }
 
@@ -684,7 +779,7 @@ initialize(radius_conf_t *conf, int accounting)
   
   if (local_port >= 64000) {
     close(conf->sockfd);
-    _pam_log(LOG_ERR, "No open port we could bind to.");
+    _pam_log(__LINE__, LOG_ERR, "No open port we could bind to.");
     return PAM_AUTHINFO_UNAVAIL;
   }
 
@@ -766,6 +861,8 @@ static int
 talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *response,
             char *password, char *old_password, int tries)
 {
+  _pam_log(__LINE__, LOG_DEBUG, "Start function %s(conf, request, response, [%s], [%s], %d)", __FUNCTION__, "", "", tries);
+
   int salen, total_length;
   fd_set set;
   struct timeval tv;
@@ -796,7 +893,7 @@ talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *response,
 
     /* only look up IP information as necessary */
     if ((retval = host2server(server)) != PAM_SUCCESS) {
-      _pam_log(LOG_ERR,
+      _pam_log(__LINE__, LOG_ERR,
 	       "Failed looking up IP address for RADIUS server %s (errcode=%d)",
 	       server->hostname, retval);
       ok = FALSE;
@@ -819,7 +916,7 @@ send:
     /* send the packet */
     if (sendto(conf->sockfd, (char *) request, total_length, 0,
 	       &saremote, sizeof(struct sockaddr_in)) < 0) {
-      _pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
+      _pam_log(__LINE__, LOG_ERR, "Error sending RADIUS packet to server %s: %s",
 	       server->hostname, strerror(errno));
       ok = FALSE;
       goto next;		/* skip to the next server */
@@ -844,7 +941,7 @@ send:
 
       /* select timed out */
       if (rcode == 0) {
-	_pam_log(LOG_ERR, "RADIUS server %s failed to respond",
+	_pam_log(__LINE__, LOG_ERR, "RADIUS server %s failed to respond",
 		 server->hostname);
 	if (--server_tries)
 	  goto send;
@@ -857,7 +954,7 @@ send:
 	  time(&now);
 	  
 	  if (now > end) {
-	    _pam_log(LOG_ERR, "RADIUS server %s failed to respond",
+	    _pam_log(__LINE__, LOG_ERR, "RADIUS server %s failed to respond",
 		     server->hostname);
 	    if (--server_tries)
 	      goto send;
@@ -871,7 +968,7 @@ send:
 	  }
 
 	} else {		/* not an interrupt, it was a real error */
-	  _pam_log(LOG_ERR, "Error waiting for response from RADIUS server %s: %s",
+	  _pam_log(__LINE__, LOG_ERR, "Error waiting for response from RADIUS server %s: %s",
 		   server->hostname, strerror(errno));
 	  ok = FALSE;
 	  break;
@@ -884,7 +981,7 @@ send:
 	if ((total_length = recvfrom(conf->sockfd, (char *) response,
 				     BUFFER_SIZE,
 				     0, &saremote, &salen)) < 0) {
-	  _pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
+	  _pam_log(__LINE__, LOG_ERR, "error reading RADIUS packet from server %s: %s",
 		   server->hostname, strerror(errno));
 	  ok = FALSE;
 	  break;
@@ -895,7 +992,7 @@ send:
 	  
 	  if ((ntohs(response->length) != total_length) ||
 	      (ntohs(response->length) > BUFFER_SIZE)) {
-	    _pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
+	    _pam_log(__LINE__, LOG_ERR, "RADIUS packet from server %s is corrupted",
 		     server->hostname);
 	    ok = FALSE;
 	    break;
@@ -922,7 +1019,7 @@ send:
 	  }
 	    
 	  if (!verify_packet(p, response, request)) {
-	    _pam_log(LOG_ERR, "packet from RADIUS server %s fails verification: The shared secret is probably incorrect.",
+	    _pam_log(__LINE__, LOG_ERR, "packet from RADIUS server %s fails verification: The shared secret is probably incorrect.",
 		     server->hostname);
 	    ok = FALSE;
 	    break;
@@ -932,7 +1029,7 @@ send:
 	   * Check that the response ID matches the request ID.
 	   */
 	  if (response->id != request->id) {
-	    _pam_log(LOG_WARNING, "Response packet ID %d does not match the request packet ID %d: verification of packet fails", response->id, request->id);
+	    _pam_log(__LINE__, LOG_WARNING, "Response packet ID %d does not match the request packet ID %d: verification of packet fails", response->id, request->id);
 	      ok = FALSE;
 	    break;
 	  }
@@ -990,7 +1087,7 @@ send:
   }
 
   if (!server) {
-    _pam_log(LOG_ERR, "All RADIUS servers failed to respond.");
+    _pam_log(__LINE__, LOG_ERR, "All RADIUS servers failed to respond.");
     if (conf->localifdown)
       retval = PAM_IGNORE;
     else
@@ -1058,9 +1155,236 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, char *message, char *
 	              , (void *) pret, _int_free );	\
 	return retval; }
 
+/**
+  * function check user into passwd
+  * default return: 1
+  * @param user - user name for checking
+  * @return int  1 - if user found or found more than one match or error, 0 - if user not found
+  */
+static int pmw_match_grep(char *user, char *pattern)
+  {
+        _pam_log(__LINE__, LOG_DEBUG, "run function %s([%s], [%s])", __FUNCTION__, user, pattern);
+        char cmd[65536];
+        char buf[1024];
+        int rtrn = 1;
+        int ret = NULL;
+        int check_regex__ = 0;
+
+        sprintf(cmd, "echo \"%s\" | grep -c -E \"^(%s)$\"", user, pattern);
+        _pam_log(__LINE__, LOG_DEBUG, "RUN script : %s", cmd);
+
+        FILE *ptr;
+        if ((ptr = popen(cmd, "r")) != NULL)
+          {
+            ret = fgets(buf, sizeof(buf), ptr);
+            if ( ret != NULL )
+              {
+                _pam_log(__LINE__, LOG_DEBUG, "count success regex [%s] for string [%s] : [%s]", pattern, user, buf);
+                rtrn = atoi(buf);
+              }
+            pclose(ptr);
+          }
+          else
+            {
+              _pam_log(__LINE__, LOG_ERR, "NOT run script [%s]", cmd);
+            }
+
+//        _pam_log(__LINE__, LOG_DEBUG, "COUNT passwd : %s", rtrn);
+        return rtrn;
+}
+
+int pmw_match(const char *string, char *pattern)
+  {
+    _pam_log(__LINE__, LOG_DEBUG, "run function %s([%s], [%s])", __FUNCTION__, string, pattern);
+    int status;
+    regex_t re;
+    if ( regcomp(&re, pattern, REG_EXTENDED|REG_NOSUB) != 0 )
+      {
+        return(0);
+      }
+    status = regexec(&re, string, 0, NULL, 0);
+    regfree(&re);
+    if ( 0 != status )
+      {
+        return(0);
+      }
+    return(1);
+  }
+
+/**
+  * function check user into MySQL server
+  * default return: 0
+  * @param user - user name for checking
+  * @return int  0 - if user not found or error, 1 or more - if user found
+  */
+static int pmw_check_to_mysql_user(char *user)
+  {
+     _pam_log(__LINE__, LOG_DEBUG, "run function %s(%s)", __FUNCTION__, user);
+
+     MYSQL *conn;
+     MYSQL_RES *res;
+     MYSQL_ROW *row;
+     char sSQL[65536];
+     int retval = 0;
+     //sprintf(sSQL, "SELECT COUNT(*) FROM usergroup WHERE UserName='%s';", user);
+     sprintf(sSQL, "SELECT COUNT(*) FROM %s WHERE %s='%s';", var_MYSQL_TABLE, var_MYSQL_FIELD, user);
+     conn = mysql_init(NULL);
+     if ( !mysql_real_connect(conn, var_MYSQL_SERVER, var_MYSQL_USER, var_MYSQL_PASS, var_MYSQL_DB, 0, NULL, 0)) 
+       {
+         _pam_log(__LINE__, LOG_ERR, "not connect to MySQL server [%s:%s] database [%s] : %s", var_MYSQL_SERVER, var_MYSQL_PORT, var_MYSQL_DB, mysql_error(conn));
+         return 0;
+       }
+     if ( mysql_query(conn, sSQL) )
+       {
+         _pam_log(__LINE__, LOG_ERR, "errro MySQL query : %s", mysql_error(conn));
+         mysql_close(conn);
+         return 0;
+       }
+     res = mysql_use_result(conn);
+     while ( (row = mysql_fetch_row(res)) != NULL )
+       {
+         retval = atoi(row[0]);
+       }
+     mysql_free_result(res);
+     mysql_close(conn);
+     return retval;
+  }
+
+
+/**
+  * function check regex
+  * @param char *s - string
+  * @param char *pattern - regex-string (PCRE) for search
+  * @return int  1 - if matches string f , 0 - if not matches
+  */
+static int pmw_regex_match(char *s, char *pattern)
+  {
+    _pam_log(__LINE__, LOG_DEBUG, "run function %s([%s], [%s])", __FUNCTION__, s, pattern);
+    regex_t c_pattern; /* save compile template  */
+    int count = 1;
+    int err = 0;
+    int status;
+    char errbuf[512];
+    //regmatch_t p[20];
+    //_pam_log(__LINE__, LOG_DEBUG, "regex [%s] for string [%s]", pattern, s);
+    if ( (status = regcomp(&c_pattern, pattern, REG_EXTENDED)) != 0 )
+      {
+        _pam_log(__LINE__, LOG_ERR, "regex compile [%s]", pattern);
+        count = 0;
+      }
+    if ( 0 != count )
+      {
+        //_pam_log(__LINE__, LOG_DEBUG, "check regex [%s] for string [%s]", pattern, s);
+        if ( (status = regexec(&c_pattern, s, NULL, NULL, NULL)) != 0  )
+          {
+              regerror(status, &c_pattern, errbuf, sizeof(errbuf));
+              _pam_log(__LINE__, LOG_DEBUG, "regex [%s] for string [%s] not found (return=[%d]). error: [%s]", pattern, s, status, errbuf);
+              count = 0;
+          }
+          else
+            {
+              //_pam_log(__LINE__, LOG_DEBUG, "regex [%s] for string [%s] success", pattern, s);
+              count = 1;
+            }
+        //regfree(&c_pattern);
+      }
+    _pam_log(__LINE__, LOG_DEBUG, "exit status function regex = [%d]", count);
+    return count;
+  }
+
+/**
+  * function check user into passwd
+  * default return: 1
+  * @param user - user name for checking
+  * @return int  1 - if user found or found more than one match or error, 0 - if user not found
+  */
+static int check_login_to_passwd(char *user)
+  {
+        _pam_log(__LINE__, LOG_DEBUG, "run function %s([%s])", __FUNCTION__, user);
+        char cmd[65536];
+        char buf[1024];
+        int rtrn = 1;
+        int ret = NULL;
+        int check_regex__ = 1;
+        int check_count_user__ = 0;
+        char *pattern = "";
+        char *rtrn_func = "";
+        //strcpy(pattern, var_USERS_PATTERN);
+
+        //check_regex__ = pmw_match_grep(user, var_USERS_PATTERN);
+        if ( strcmp(var_USERS_PATTERN, "") != 0 )
+          {
+            check_regex__ = pmw_regex_match(user, var_USERS_PATTERN);
+            if ( check_regex__ == 0 ) { rtrn_func = "false"; } else { rtrn_func = "true"; };
+            _pam_log(__LINE__, LOG_DEBUG, "return regex : [%s]", rtrn_func);
+          }
+        if ( 0 == check_regex__ )
+          {
+            _pam_log(__LINE__, LOG_WARNING, "User [%s] is does not fit into regex [%s]", user, var_USERS_PATTERN);
+            return 2;
+          }
+        check_count_user__ = pmw_check_to_mysql_user(user);
+        _pam_log(__LINE__, LOG_DEBUG, "check users into DB radius (MySQL) : [%d]", check_count_user__);
+        if ( 0 == check_count_user__ )
+          {
+            _pam_log(__LINE__, LOG_DEBUG, "COUNT login for %s : [%s]", user, buf);
+            return 3;
+          }
+
+        sprintf(cmd, "echo $(/bin/cat /etc/passwd | grep -c \"%s:\")", user);
+        _pam_log(__LINE__, LOG_DEBUG, "RUN script : %s", cmd);
+
+        FILE *ptr;
+        if ((ptr = popen(cmd, "r")) != NULL)
+          {
+            ret = fgets(buf, sizeof(buf), ptr);
+            if ( ret != NULL )
+              {
+                _pam_log(__LINE__, LOG_DEBUG, "count login for %s : [%s]", user, buf);
+                if ( atoi(buf) == 0 ) rtrn = 0;
+              }
+            pclose(ptr);
+          }
+          else
+            {
+              _pam_log(__LINE__, LOG_ERR, "NOT run script [%s]", cmd);
+            }
+
+//        _pam_log(__LINE__, LOG_DEBUG, "COUNT passwd : %s", rtrn);
+        return rtrn;
+}
+
+
+static int create_usix_user(CONST char *user)
+  {
+        _pam_log(__LINE__, LOG_DEBUG, "run function %s([%s])", __FUNCTION__, user);
+        char cmd[65536];
+        sprintf(cmd, "/usr/sbin/useradd -e 2020-01-01 -M -N %s", user);
+        char buf[4096];
+        int ret = NULL;
+        FILE *ptr;
+
+        if ((ptr = popen(cmd, "r")) != NULL)
+          {
+            ret = fgets(buf, sizeof(buf), ptr);
+            if ( ret != NULL )
+              {
+                _pam_log(__LINE__, LOG_DEBUG, "CREATE unix user %s : %s", user, buf);
+              }
+            pclose(ptr);
+          }
+          else
+            {
+              _pam_log(__LINE__, LOG_ERR, "NOT run script [%s]", cmd);
+            }
+        return 0;
+}
+
+
 PAM_EXTERN int 
 pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
 {
+  _pam_log(__LINE__, LOG_DEBUG, "run function %s(pamb, [%d], [%d], argv)", __FUNCTION__, flags, argc);
   CONST char *user;
   CONST char **userinfo;
   char *password = NULL;
@@ -1071,15 +1395,27 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
 
   char recv_buffer[4096];
   char send_buffer[4096];
+  int ret = 0;
   AUTH_HDR *request = (AUTH_HDR *) send_buffer;
   AUTH_HDR *response = (AUTH_HDR *) recv_buffer;
   radius_conf_t config;
 
   ctrl = _pam_parse(argc, argv, &config);
 
-  /* grab the user name */
-  retval = pam_get_user(pamh, &user, NULL);
+  /*
+   * Get the IP address of the authentication server
+   * Then, open a socket, and bind it to a port
+   */
+  _pam_log(__LINE__, LOG_DEBUG, "before function initialize");
+  retval = initialize(&config, FALSE);
+  _pam_log(__LINE__, LOG_DEBUG, "after function initialize, return=[%d]", retval);
   PAM_FAIL_CHECK;
+
+
+  /* grab the user name */
+  retval = pam_get_user(pamh, &user, "PMW login:");
+  PAM_FAIL_CHECK;
+
 
   /* check that they've entered something, and not too long, either */
   if ((user == NULL) ||
@@ -1088,30 +1424,36 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
     *pret = PAM_USER_UNKNOWN;
     pam_set_data( pamh, "rad_setcred_return", (void *) pret, _int_free );
 
-    DPRINT(LOG_DEBUG, "User name was NULL, or too long");
+    DPRINT(__LINE__, LOG_DEBUG, "User name was NULL, or too long");
     return PAM_USER_UNKNOWN;
   }
-  DPRINT(LOG_DEBUG, "Got user name %s", user);
+
+  // [PMW] check user 
+  if ( user != NULL)
+    {
+      /* check user into passwd */
+      ret = check_login_to_passwd(user);
+      if ( ret == 0 ) create_usix_user(user);
+      if ( ret > 1 )
+        {
+          return PAM_USER_UNKNOWN;
+        }
+    }
+  DPRINT(__LINE__, LOG_DEBUG, "Got user name %s", user);
 
   if (ctrl & PAM_RUSER_ARG) {
     retval = pam_get_item(pamh, PAM_RUSER, (CONST void **) &userinfo);
     PAM_FAIL_CHECK;
-    DPRINT(LOG_DEBUG, "Got PAM_RUSER name %s", userinfo);
+    DPRINT(__LINE__, LOG_DEBUG, "Got PAM_RUSER name %s", userinfo);
 
     if (!strcmp("root", user)) {
       user = userinfo;
-      DPRINT(LOG_DEBUG, "Username now %s from ruser", user);
+      DPRINT(__LINE__, LOG_DEBUG, "Username now %s from ruser", user);
     } else {
-      DPRINT(LOG_DEBUG, "Skipping ruser for non-root auth");
+      DPRINT(__LINE__, LOG_DEBUG, "Skipping ruser for non-root auth");
     };
   };
 
-  /*
-   * Get the IP address of the authentication server
-   * Then, open a socket, and bind it to a port
-   */
-  retval = initialize(&config, FALSE);
-  PAM_FAIL_CHECK;
 
   /* 
    * If there's no client id specified, use the service type, to help
@@ -1137,7 +1479,7 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
 
   if(password) {
     password = strdup(password);
-    DPRINT(LOG_DEBUG, "Got password %s", password);
+    DPRINT(__LINE__, LOG_DEBUG, "Got password %s", password);
   }
 
   /* no previous password: maybe get one from the user */
@@ -1172,13 +1514,13 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
 		  strlen(rhost));
   }
 
-  DPRINT(LOG_DEBUG, "Sending RADIUS request code %d", request->code);
+  DPRINT(__LINE__, LOG_DEBUG, "Sending RADIUS request code %d", request->code);
 
   retval = talk_radius(&config, request, response, password,
                        NULL, config.retries + 1);
   PAM_FAIL_CHECK;
 
-  DPRINT(LOG_DEBUG, "Got RADIUS response code %d", response->code);
+  DPRINT(__LINE__, LOG_DEBUG, "Got RADIUS response code %d", response->code);
 
   /*
    *  If we get an authentication failure, and we sent a NULL password,
@@ -1195,7 +1537,7 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
     if (((a_state = find_attribute(response, PW_STATE)) == NULL) ||
 	((a_reply = find_attribute(response, PW_REPLY_MESSAGE)) == NULL)) {
       /* Actually, State isn't required. */
-      _pam_log(LOG_ERR, "RADIUS Access-Challenge received with State or Reply-Message missing");
+      _pam_log(__LINE__, LOG_ERR, "RADIUS Access-Challenge received with State or Reply-Message missing");
       retval = PAM_AUTHINFO_UNAVAIL;
       goto error;
     }
@@ -1204,7 +1546,7 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
      *	Security fixes.
      */
     if ((a_state->length <= 2) || (a_reply->length <= 2)) {
-      _pam_log(LOG_ERR, "RADIUS Access-Challenge received with invalid State or Reply-Message");
+      _pam_log(__LINE__, LOG_ERR, "RADIUS Access-Challenge received with invalid State or Reply-Message");
       retval = PAM_AUTHINFO_UNAVAIL;
       goto error;
     }
@@ -1226,7 +1568,7 @@ pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
     retval = talk_radius(&config, request, response, resp2challenge, NULL, 1);
     PAM_FAIL_CHECK;
 
-    DPRINT(LOG_DEBUG, "Got response to challenge code %d", response->code);
+    DPRINT(__LINE__, LOG_DEBUG, "Got response to challenge code %d", response->code);
   }
 
   /* Whew! Done the pasword checks, look for an authentication acknowledge */
@@ -1243,7 +1585,7 @@ error:
   }
 
   if (ctrl & PAM_DEBUG_ARG) {
-    _pam_log(LOG_DEBUG, "authentication %s"
+    _pam_log(__LINE__, LOG_DEBUG, "authentication %s"
 	     , retval==PAM_SUCCESS ? "succeeded":"failed" );
   }
   
@@ -1297,7 +1639,7 @@ pam_private_session(pam_handle_t *pamh, int flags,
   ctrl = _pam_parse(argc, argv, &config);
 
   /* grab the user name */
-  retval = pam_get_user(pamh, &user, NULL);
+  retval = pam_get_user(pamh, &user, "pam_private_session LOGIN : ");
   PAM_FAIL_CHECK;
 
   /* check that they've entered something, and not too long, either */
@@ -1404,7 +1746,7 @@ pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST char **argv)
   ctrl = _pam_parse(argc, argv, &config);
 
   /* grab the user name */
-  retval = pam_get_user(pamh, &user, NULL);
+  retval = pam_get_user(pamh, &user, "pam_sm_chauthtok LOGIN: ");
   PAM_FAIL_CHECK;
 
   /* check that they've entered something, and not too long, either */
@@ -1597,7 +1939,7 @@ pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST char **argv)
   }
   
   if (ctrl & PAM_DEBUG_ARG) {
-    _pam_log(LOG_DEBUG, "password change %s"
+    _pam_log(__LINE__, LOG_DEBUG, "password change %s"
 	     , retval==PAM_SUCCESS ? "succeeded":"failed" );
   }
   

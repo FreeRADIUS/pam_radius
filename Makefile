@@ -6,7 +6,7 @@
 #
 #############################################################################
 
-VERSION=1.3.17
+VERSION=1.4.1
 
 ######################################################################
 #
@@ -15,7 +15,14 @@ VERSION=1.3.17
 #
 #  If you're not using GCC, then you'll have to change the CFLAGS.
 #
-CFLAGS = -Wall -fPIC
+# for x64
+CFLAGS = -Wall -fPIC -I/usr/include/mysql -L/usr/lib64/mysql -lmysqlclient -lpcre
+# for x32
+#CFLAGS = -Wall -fPIC -I/usr/include/mysql -L/usr/lib/mysql -lmysqlclient -lpcre
+
+# for options -I, -L, -l run command "mysql_config --cflags" and "mysql_config --libs"
+# $(mysql_config --cflags) $(mysql_config --libs)
+
 #
 # On Irix, use this with MIPSPRo C Compiler, and don't forget to export CC=cc
 # gcc on Irix does not work yet for pam_radius
@@ -35,7 +42,7 @@ all: pam_radius_auth.so
 #  Build the object file from the C source.
 #
 pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h
-	$(CC) $(CFLAGS) -c pam_radius_auth.c -o pam_radius_auth.o
+	$(CC) $(CFLAGS) -c pam_radius_auth.c -o pam_radius_auth.o 
 #
 # This is what should work on Irix:
 #pam_radius_auth.so: pam_radius_auth.o md5.o
@@ -52,10 +59,10 @@ pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h
 #
 #  On systems with a newer GCC, you will need to do:
 #
-#	gcc -shared pam_radius_auth.o md5.o -lpam -lc -o pam_radius_auth.so
+	gcc -shared pam_radius_auth.o md5.o -lpam -lc -o pam_radius_auth.so $(CFLAGS) 
 #
 pam_radius_auth.so: pam_radius_auth.o md5.o
-	ld -Bshareable pam_radius_auth.o md5.o -lpam -o pam_radius_auth.so
+#	ld -Bshareable pam_radius_auth.o md5.o -lpam -o pam_radius_auth.so
 
 ######################################################################
 #

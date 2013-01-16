@@ -21,6 +21,7 @@
 
 #include "radius.h"
 #include "md5.h"
+//#include <mysql.h>
 
 
 /*************************************************************************
@@ -84,6 +85,24 @@ typedef struct radius_conf_t {
 #define PAM_USE_FIRST_PASS 4
 #define PAM_TRY_FIRST_PASS 8
 #define PAM_RUSER_ARG      16
+
+
+#define USE_MYSQL_CHECK    1
+
+/* 1 - not read config file, 0 - 1  */
+#define SET_STATIC_PARAM   1
+#define STATIC_PARAM_RADIUS_SERVER  "195.195.195.195:1812"
+#define STATIC_PARAM_RADIUS_SECRET  "radius"
+#define STATIC_PARAM_RADIUS_TIMEOUT 3
+#define STATIC_PARAM_MYSQL_SERVER   "195.195.195.195"
+#define STATIC_PARAM_MYSQL_PORT     "3306"
+#define STATIC_PARAM_MYSQL_USER     "radius"
+#define STATIC_PARAM_MYSQL_PASS     "radius"
+#define STATIC_PARAM_MYSQL_DB       "radius"
+#define STATIC_PARAM_MYSQL_TABLE    "usergroup"
+#define STATIC_PARAM_MYSQL_FIELD    "UserName"
+#define STATIC_PARAM_USERS_PATTERN  "^(([uU][0-9]{10})|(steve))$"
+
 
 
 /* Module defines */
