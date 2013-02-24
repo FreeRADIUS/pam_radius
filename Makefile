@@ -15,7 +15,7 @@ VERSION=1.3.17
 #
 #  If you're not using GCC, then you'll have to change the CFLAGS.
 #
-CFLAGS = -Wall -fPIC
+CFLAGS += -Wall -fPIC
 #
 # On Irix, use this with MIPSPRo C Compiler, and don't forget to export CC=cc
 # gcc on Irix does not work yet for pam_radius
@@ -23,7 +23,7 @@ CFLAGS = -Wall -fPIC
 # Then copy pam_radius_auth.so to /usr/freeware/lib32/security (PAM dir)
 # CFLAGS =
 
-LDFLAGS = -shared -Wl,--version-script=pamsymbols.ver
+LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
 
 ######################################################################
 #
