@@ -23,6 +23,7 @@ CFLAGS = -Wall -fPIC
 # Then copy pam_radius_auth.so to /usr/freeware/lib32/security (PAM dir)
 # CFLAGS =
 
+LDFLAGS = -shared -Wl,--version-script=pamsymbols.ver
 
 ######################################################################
 #
@@ -55,7 +56,7 @@ pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h
 #	gcc -shared pam_radius_auth.o md5.o -lpam -lc -o pam_radius_auth.so
 #
 pam_radius_auth.so: pam_radius_auth.o md5.o
-	ld -Bshareable pam_radius_auth.o md5.o -lpam -o pam_radius_auth.so
+	$(CC) $(LDFLAGS) pam_radius_auth.o md5.o -lpam -o pam_radius_auth.so
 
 ######################################################################
 #
