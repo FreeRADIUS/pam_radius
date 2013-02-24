@@ -3,9 +3,9 @@ is not implemented, as the RADIUS protocol does not support it.
 
   The pam configuration can be:
 ...
-auth       sufficient   /lib/security/pam_radius_auth.so [options]
+auth       sufficient   pam_radius_auth.so [options]
 ...
-account    sufficient   /lib/security/pam_radius_auth.so
+account    sufficient   pam_radius_auth.so
 
 ---------------------------------------------------------------------------
 
