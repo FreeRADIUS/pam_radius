@@ -766,7 +766,8 @@ static int
 talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *response,
             char *password, char *old_password, int tries)
 {
-  int salen, total_length;
+  socklen_t salen;
+  int total_length;
   fd_set set;
   struct timeval tv;
   time_t now, end;
@@ -881,7 +882,7 @@ send:
       } else if (FD_ISSET(conf->sockfd, &set)) {
 
 	/* try to receive some data */
-	if ((total_length = recvfrom(conf->sockfd, (char *) response,
+	if ((total_length = recvfrom(conf->sockfd, (void *) response,
 				     BUFFER_SIZE,
 				     0, &saremote, &salen)) < 0) {
 	  _pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
@@ -1062,7 +1063,7 @@ PAM_EXTERN int
 pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
 {
   CONST char *user;
-  CONST char **userinfo;
+  CONST char *userinfo;
   char *password = NULL;
   CONST char *rhost;
   char *resp2challenge = NULL;
