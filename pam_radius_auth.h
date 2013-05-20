@@ -36,7 +36,7 @@ typedef struct attribute_t {
 
 typedef struct radius_server_t {
   struct radius_server_t *next;
-  struct in_addr ip;
+  struct sockaddr_storage ssip;
   u_short port;
   char *hostname;
   char *secret;

@@ -29,7 +29,7 @@ LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
 #
 #  The default rule to build everything.
 #
-all: pam_radius_auth.so
+all: pam_radius_auth.so pam_radius_auth_trace.so
 
 ######################################################################
 #
@@ -37,6 +37,9 @@ all: pam_radius_auth.so
 #
 pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h
 	$(CC) $(CFLAGS) -c pam_radius_auth.c -o pam_radius_auth.o
+
+pam_radius_auth_trace.o: pam_radius_auth.c pam_radius_auth.h
+	$(CC) $(CFLAGS) -DTRACEON -c pam_radius_auth.c -o pam_radius_auth_trace.o
 #
 # This is what should work on Irix:
 #pam_radius_auth.so: pam_radius_auth.o md5.o
@@ -57,6 +60,9 @@ pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h
 #
 pam_radius_auth.so: pam_radius_auth.o md5.o
 	$(CC) $(LDFLAGS) pam_radius_auth.o md5.o -lpam -o pam_radius_auth.so
+
+pam_radius_auth_trace.so: pam_radius_auth_trace.o md5.o
+	$(CC) $(LDFLAGS) pam_radius_auth_trace.o md5.o -lpam -o pam_radius_auth_trace.so
 
 ######################################################################
 #
