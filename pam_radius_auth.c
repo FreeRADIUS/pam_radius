@@ -56,8 +56,9 @@
 
 #include <limits.h>
 #include <errno.h>
+#include <sys/time.h>
 
-#ifdef sun
+#if defined(sun) || defined(__APPLE__)
 #include <security/pam_appl.h>
 #endif
 #include <security/pam_modules.h>
