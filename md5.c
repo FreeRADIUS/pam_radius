@@ -42,14 +42,16 @@
 #include <string.h>
 #include "md5.h"
 
-#if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN
-#define HIGHFIRST
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#  define HIGHFIRST
+#elif defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN
+#  define HIGHFIRST
 #elif defined(__sparc) || defined(__mips)
-#define HIGHFIRST
+#  define HIGHFIRST
 #endif
 
 #ifndef HIGHFIRST
-#define byteReverse(buf, len)	/* Nothing */
+#  define byteReverse(buf, len)	/* Nothing */
 #else
 void byteReverse(unsigned char *buf, unsigned longs);
 
