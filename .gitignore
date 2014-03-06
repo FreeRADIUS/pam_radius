@@ -53,8 +53,6 @@ config.status
 Make.inc
 libtool
 autom4te.cache
-config.guess
-config.sub
 config.h
 src/main/radattr
 src/modules/lib/

@@ -17,7 +17,7 @@
  *	in advertising or publicity pertaining to distribution of the
  *	program without specific prior permission, and notice be given
  *	in supporting documentation that copying and distribution is by
- *	permission of Livingston Enterprises, Inc.   
+ *	permission of Livingston Enterprises, Inc.
  *
  *	Livingston Enterprises, Inc. makes no representations about
  *	the suitability of this software for any purpose.  It is
@@ -26,7 +26,7 @@
  */
 
 /*
- *	@(#)radius.h	1.9 11/14/94 
+ *	@(#)radius.h	1.9 11/14/94
  */
 #ifndef RADIUS_H
 #define RADIUS_H
@@ -35,16 +35,12 @@
 #define AUTH_PASS_LEN		16
 #define AUTH_STRING_LEN		128	/* maximum of 254 */
 
-#ifndef UINT4
-typedef unsigned long UINT4;
-#endif
-
 typedef struct pw_auth_hdr {
-	u_char		code;
-	u_char		id;
-	u_short		length;
-	u_char		vector[AUTH_VECTOR_LEN];
-	u_char		data[2];
+	uint8_t		code;
+	uint8_t		id;
+	uint16_t	length;
+	uint8_t		vector[AUTH_VECTOR_LEN];
+	uint8_t		data[2];
 } AUTH_HDR;
 
 #define AUTH_HDR_LEN			20
@@ -208,21 +204,21 @@ typedef struct value_pair {
 	char			name[32];
 	int			attribute;
 	int			type;
-	UINT4			lvalue;
+	uint32_t		lvalue;
 	char			strvalue[AUTH_STRING_LEN];
 	struct value_pair	*next;
 } VALUE_PAIR;
 
 typedef struct auth_req {
-	UINT4			ipaddr;
-	u_short			udp_port;
-	u_char			id;
-	u_char			code;
-	u_char			vector[16];
-	u_char			secret[16];
+	uint32_t		ipaddr;
+	uint16_t		udp_port;
+	uint8_t			id;
+	uint8_t			code;
+	uint8_t			vector[16];
+	uint8_t			secret[16];
 	VALUE_PAIR		*request;
 	int			child_pid;	/* Process ID of child */
-	UINT4			timestamp;
+	uint32_t		timestamp;
 	struct auth_req		*next;		/* Next active request */
 } AUTH_REQ;
 

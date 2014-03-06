@@ -19,7 +19,7 @@
  * 1.3.11 - Bug fixes by Jon Nelson <jnelson@securepipe.com>
  * 1.3.12 - miscellanous bug fixes.  Don't add password to accounting
  *          requests; log more errors; add NAS-Port and NAS-Port-Type
- *          attributes to ALL packets.  Some patches based on input from 
+ *          attributes to ALL packets.  Some patches based on input from
  *          Grzegorz Paszka <Grzegorz.Paszka@pik-net.pl>
  * 1.3.13 - Always update the configuration file, even if we're given
  *          no options.  Patch from Jon Nelson <jnelson@securepipe.com>
@@ -57,11 +57,6 @@
 #include <limits.h>
 #include <errno.h>
 #include <sys/time.h>
-
-#if defined(sun) || defined(__APPLE__)
-#include <security/pam_appl.h>
-#endif
-#include <security/pam_modules.h>
 
 #include "pam_radius_auth.h"
 
@@ -167,15 +162,15 @@ void _int_free(pam_handle_t * pamh, void *x, int error_status)
  * Return an IP address in host long notation from
  * one supplied in standard dot notation.
  */
-static UINT4 ipstr2long(char *ip_str) {
+static uint32_t ipstr2long(char *ip_str) {
 	char	buf[6];
 	char	*ptr;
 	int	i;
 	int	count;
-	UINT4	ipaddr;
+	uint32_t	ipaddr;
 	int	cur_byte;
 
-	ipaddr = (UINT4)0;
+	ipaddr = (uint32_t)0;
 
 	for(i = 0;i < 4;i++) {
 		ptr = buf;
@@ -184,24 +179,24 @@ static UINT4 ipstr2long(char *ip_str) {
 
 		while(*ip_str != '.' && *ip_str != '\0' && count < 4) {
 			if(!isdigit(*ip_str)) {
-				return((UINT4)0);
+				return((uint32_t)0);
 			}
 			*ptr++ = *ip_str++;
 			count++;
 		}
 
 		if(count >= 4 || count == 0) {
-			return((UINT4)0);
+			return((uint32_t)0);
 		}
 
 		*ptr = '\0';
 		cur_byte = atoi(buf);
 		if(cur_byte < 0 || cur_byte > 255) {
-			return ((UINT4)0);
+			return ((uint32_t)0);
 		}
 
 		ip_str++;
-		ipaddr = ipaddr << 8 | (UINT4)cur_byte;
+		ipaddr = ipaddr << 8 | (uint32_t)cur_byte;
 	}
 	return(ipaddr);
 }
@@ -240,16 +235,16 @@ static int good_ipaddr(char *addr) {
  * Return an IP address in host long notation from a host
  * name or address in dot notation.
  */
-static UINT4 get_ipaddr(char *host) {
+static uint32_t get_ipaddr(char *host) {
 	struct hostent *hp;
 
 	if(good_ipaddr(host) == 0) {
 		return(ipstr2long(host));
 	} else if((hp = gethostbyname(host)) == (struct hostent *)NULL) {
-		return((UINT4)0);
+		return((uint32_t)0);
 	}
 
-	return(ntohl(*(UINT4 *)hp->h_addr));
+	return(ntohl(*(uint32_t *)hp->h_addr));
 }
 
 /*
@@ -264,7 +259,7 @@ static int host2server(radius_server_t *server)
 		*(p++) = '\0';		/* split the port off from the host name */
 	}
 
-	if ((server->ip.s_addr = get_ipaddr(server->hostname)) == ((UINT4)0)) {
+	if ((server->ip.s_addr = get_ipaddr(server->hostname)) == ((uint32_t)0)) {
 		DPRINT(LOG_DEBUG, "DEBUG: get_ipaddr(%s) returned 0.\n", server->hostname);
 		return PAM_AUTHINFO_UNAVAIL;
 	}
@@ -277,9 +272,9 @@ static int host2server(radius_server_t *server)
 			unsigned int i = atoi(p) & 0xffff;
 
 			if (!server->accounting) {
-				server->port = htons((u_short) i);
+				server->port = htons((uint16_t) i);
 			} else {
-				server->port = htons((u_short) (i + 1));
+				server->port = htons((uint16_t) (i + 1));
 			}
 		} else {			/* the port looks like it's a name */
 			struct servent *svp;
@@ -570,7 +565,7 @@ static void cleanup(radius_server_t *server)
 static int initialize(radius_conf_t *conf, int accounting)
 {
 	struct sockaddr salocal;
-	u_short local_port;
+	uint16_t local_port;
 	char hostname[BUFFER_SIZE];
 	char secret[BUFFER_SIZE];
 
@@ -684,7 +679,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char *password, radius_conf_t *conf)
 {
 	char hostname[256];
-	UINT4 ipaddr;
+	uint32_t ipaddr;
 
 	hostname[0] = '\0';
 	gethostname(hostname, sizeof(hostname) - 1);
@@ -719,7 +714,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 		if ((hp = gethostbyname(hostname)) == (struct hostent *) NULL) {
 			ipaddr = 0x00000000;	/* no client IP address */
 		} else {
-			ipaddr = ntohl(*(UINT4 *) hp->h_addr); /* use the first one available */
+			ipaddr = ntohl(*(uint32_t *) hp->h_addr); /* use the first one available */
 		}
 	}
 

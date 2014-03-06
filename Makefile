@@ -23,7 +23,8 @@ CFLAGS += -Wall -fPIC
 # Then copy pam_radius_auth.so to /usr/freeware/lib32/security (PAM dir)
 # CFLAGS =
 
-LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
+#LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
+LDFLAGS += -shared -Wl
 
 ######################################################################
 #
@@ -35,8 +36,11 @@ all: pam_radius_auth.so
 #
 #  Build the object file from the C source.
 #
-pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h
-	$(CC) $(CFLAGS) -c pam_radius_auth.c -o pam_radius_auth.o
+pam_radius_auth.o: src/pam_radius_auth.c src/pam_radius_auth.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+md5.o: src/md5.c src/md5.h
+	$(CC) $(CFLAGS) -c $< -o $@
 #
 # This is what should work on Irix:
 #pam_radius_auth.so: pam_radius_auth.o md5.o

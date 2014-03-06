@@ -1,6 +1,8 @@
 #ifndef PAM_RADIUS_H
 #define PAM_RADIUS_H
 
+#include "config.h"
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
@@ -19,6 +21,21 @@
 #include <netdb.h>
 #include <fcntl.h>
 
+#if defined(HAVE_SECURITY_PAM_APPL_H)
+#  include <security/pam_appl.h>
+#elif defined(HAVE_PAM_PAM_APPL_H)
+#  include <pam/pam_appl.h>
+#endif
+
+#if defined(HAVE_SECURITY_PAM_MODULES_H)
+#  include <security/pam_modules.h>
+#elif defined(HAVE_PAM_PAM_APPL_H)
+#  include <pam/pam_modules.h>
+#else
+#  error security/pam_modules.h or pam/pam_modules.h required
+#endif
+
+
 #include "radius.h"
 #include "md5.h"
 
@@ -29,29 +46,29 @@
 
 /* Per-attribute structure */
 typedef struct attribute_t {
-  unsigned char attribute;
-  unsigned char length;
-  unsigned char data[1];
+	unsigned char attribute;
+	unsigned char length;
+	unsigned char data[1];
 } attribute_t;
 
 typedef struct radius_server_t {
-  struct radius_server_t *next;
-  struct in_addr ip;
-  u_short port;
-  char *hostname;
-  char *secret;
-  int timeout;
-  int accounting;
+	struct radius_server_t *next;
+	struct in_addr ip;
+	uint16_t port;
+	char *hostname;
+	char *secret;
+	int timeout;
+	int accounting;
 } radius_server_t;
 
 typedef struct radius_conf_t {
-  radius_server_t *server;
-  int retries;
-  int localifdown;
-  char *client_id;
-  int accounting_bug;
-  int sockfd;
-  int debug;
+	radius_server_t *server;
+	int retries;
+	int localifdown;
+	char *client_id;
+	int accounting_bug;
+	int sockfd;
+	int debug;
 } radius_conf_t;
 
 
