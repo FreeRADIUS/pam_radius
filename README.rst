@@ -4,16 +4,16 @@ pam_radius
 |BuildStatus|_ 
 
 This is the PAM to RADIUS authentication module.  It allows any
-Linux or Solaris machine to become a RADIUS client for authentication
-and password change requests.  You will need to supply your own RADIUS
-server to perform the actual authentication.
+Linux, OSX or Solaris machine to become a RADIUS client for 
+authentication and password change requests.  You will need to supply 
+your own RADIUS server to perform the actual authentication.
 
 The latest version has a simple merger of the original pam_radius
 session accounting code which will work *only* on Linux.
 
 See INSTALL for instructions on building and installing this module.
-I have successfully used it for RADIUS authentication on RedHat 4.2,
-RedHat 5.x, RedHat 6.x, and Solaris 2.6.
+It has been successfully used it for RADIUS authentication on RedHat 4.2,
+RedHat 5.x, RedHat 6.x, and Solaris 2.6 and OSX 10.9.1.
 
 A number of options are supported by this module.  See USAGE for
 more details.
