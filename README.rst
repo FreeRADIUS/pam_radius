@@ -13,7 +13,7 @@ session accounting code which will work *only* on Linux.
 
 See INSTALL for instructions on building and installing this module.
 It has been successfully used it for RADIUS authentication on RedHat 4.2,
-RedHat 5.x, RedHat 6.x, and Solaris 2.6 and OSX 10.9.1.
+RedHat 5.x, RedHat 6.x, Solaris 2.6 and OSX 10.9.1.
 
 A number of options are supported by this module.  See USAGE for
 more details.
