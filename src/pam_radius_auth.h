@@ -76,16 +76,25 @@ typedef struct radius_conf_t {
  * Platform specific defines
  *************************************************************************/
 
-#ifdef sun
-#define PAM_EXTERN extern
+#ifndef CONST
+#  if defined(__sun) || defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__)
 /*
  *  On older versions of Solaris, you may have to change this to:
  *  #define CONST
  */
-#define CONST const
+#  define CONST const
 #else
-#define CONST const
+#  define CONST
 #endif
+
+#ifndef PAM_EXTERN
+#  ifdef __sun
+#    define PAM_EXTERN extern
+#  else
+#    define PAM_EXTERN
+#  endif
+#endif
+
 
 /*************************************************************************
  * Useful macros and defines
