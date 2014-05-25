@@ -82,9 +82,10 @@ typedef struct radius_conf_t {
  *  On older versions of Solaris, you may have to change this to:
  *  #define CONST
  */
-#  define CONST const
-#else
-#  define CONST
+#    define CONST const
+#  else
+#    define CONST
+#  endif
 #endif
 
 #ifndef PAM_EXTERN
