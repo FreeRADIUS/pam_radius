@@ -39,6 +39,9 @@
 #include "radius.h"
 #include "md5.h"
 
+/* Defaults for the prompt option */
+#define MAXPROMPT 33               /* max prompt length, including '\0' */
+#define DEFAULT_PROMPT "Password"  /* default prompt, without the ': '  */
 
 /*************************************************************************
  * Additional RADIUS definitions
@@ -69,6 +72,7 @@ typedef struct radius_conf_t {
 	int accounting_bug;
 	int sockfd;
 	int debug;
+	char prompt[MAXPROMPT];
 } radius_conf_t;
 
 

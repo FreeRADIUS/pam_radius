@@ -83,5 +83,13 @@ accounting_bug - When used, the accounting response vector is NOT
                  validated.  This option will probably only be necessary
                  on REALLY OLD (i.e. Livingston 1.16) servers.
 
+prompt=string  - Specifies the prompt, without the ': ', that PAM should
+                 display when prompting for the password. This is useful
+                 when using hardware tokens as part of multi-factor
+                 authentication and presenting the same prompt twice would
+                 confuse users.  Use prompt=TokenCode (or some other
+                 relevant string different from Password) in this
+                 situation.
+
 ---------------------------------------------------------------------------
 
