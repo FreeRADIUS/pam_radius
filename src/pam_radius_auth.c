@@ -1222,9 +1222,7 @@ error:
 		}
 	}
 
-	if (ctrl & PAM_DEBUG_ARG) {
-		_pam_log(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
-	}
+	DPRINT(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
 
 	close(config.sockfd);
 	cleanup(config.server);
