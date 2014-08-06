@@ -779,6 +779,8 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 	/* loop over all available servers */
 	while (server != NULL) {
+		/* clear the response */
+		memset(response, 0, sizeof(AUTH_HDR));
 
 		/* only look up IP information as necessary */
 		if ((retval = host2server(server)) != PAM_SUCCESS) {
