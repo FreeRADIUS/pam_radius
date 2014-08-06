@@ -289,15 +289,15 @@ static int host2server(radius_server_t *server)
 			if (p) {			/* maybe it's not "radius" */
 				svp = getservbyname (p, "udp");
 				/* quotes allow distinction from above, lest p be radius or radacct */
-				DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %d.\n", p, svp);
+				DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %p.\n", p, svp);
 				*(--p) = ':';		/* be sure to put the delimiter back */
 			} else {
 				if (!server->accounting) {
 					svp = getservbyname ("radius", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %d.\n", svp);
+					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %p.\n", svp);
 				} else {
 					svp = getservbyname ("radacct", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %d.\n", svp);
+					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %p.\n", svp);
 				}
 			}
 
