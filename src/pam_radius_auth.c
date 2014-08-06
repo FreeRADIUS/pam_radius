@@ -107,6 +107,12 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		/* generic options */
 		if (!strncmp(*argv,"conf=",5)) {
+			/* protect against buffer overflow */
+			if (strlen(*argv+5) >= sizeof(conf_file)) {
+				_pam_log(LOG_ERR, "conf= argument too long");
+				conf_file[0] = 0;
+				return 0;
+			}
 			strcpy(conf_file,*argv+5);
 
 		} else if (!strcmp(*argv, "use_first_pass")) {
