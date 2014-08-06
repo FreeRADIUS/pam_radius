@@ -60,11 +60,12 @@
 
 #include "pam_radius_auth.h"
 
-#define DPRINT if (ctrl & PAM_DEBUG_ARG) _pam_log
+#define DPRINT if (opt_debug & PAM_DEBUG_ARG) _pam_log
 
 /* internal data */
 static CONST char *pam_module_name = "pam_radius_auth";
 static char conf_file[BUFFER_SIZE]; /* configuration file */
+static int opt_debug = FALSE;		/* print debug info */
 
 /* we need to save these from open_session to close_session, since
  * when close_session will be called we won't be root anymore and
@@ -145,6 +146,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		} else if (!strcmp(*argv, "debug")) {
 			ctrl |= PAM_DEBUG_ARG;
 			conf->debug = 1;
+			opt_debug = TRUE;
 
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", *argv);
@@ -259,7 +261,6 @@ static uint32_t get_ipaddr(char *host) {
 static int host2server(radius_server_t *server)
 {
 	char *p;
-	int ctrl = 1; /* for DPRINT */
 
 	if ((p = strchr(server->hostname, ':')) != NULL) {
 		*(p++) = '\0';		/* split the port off from the host name */
