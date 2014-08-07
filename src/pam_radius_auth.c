@@ -95,6 +95,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	strcpy(conf_file, CONF_FILE);
 
+	/* set the default prompt */
+	snprintf(conf->prompt, MAXPROMPT, "%s: ", DEFAULT_PROMPT);
+
 	/*
 	 *	If either is not there, then we can't parse anything.
 	 */
@@ -140,6 +143,18 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			ctrl |= PAM_DEBUG_ARG;
 			conf->debug = 1;
 
+		} else if (!strncmp(*argv, "prompt=", 7)) {
+			if (!strncmp(conf->prompt, (char*)*argv+7, MAXPROMPT)) {
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
+			} else {
+				/* truncate excessive prompts to (MAXPROMPT - 3) length */
+				if (strlen((char*)*argv+7) >= (MAXPROMPT - 3)) {
+					*((char*)*argv+7 + (MAXPROMPT - 3)) = 0;
+				}
+				/* set the new prompt */
+				memset(conf->prompt, 0, sizeof(conf->prompt));
+				snprintf(conf->prompt, MAXPROMPT, "%s: ", (char*)*argv+7);
+			}
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", *argv);
 		}
@@ -1123,7 +1138,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 		/* check to see if we send a NULL password the first time around */
 		if (!(ctrl & PAM_SKIP_PASSWD)) {
-			retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF, "Password: ", &password);
+			retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF, config.prompt, &password);
 			PAM_FAIL_CHECK;
 
 		}
@@ -1406,7 +1421,7 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
 	/* preliminary password change checks. */
 	if (flags & PAM_PRELIM_CHECK) {
 		if (!password) {		/* no previous password: ask for one */
-			retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF, "Password: ", &password);
+			retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF, config.prompt, &password);
 			PAM_FAIL_CHECK;
 		}
 
