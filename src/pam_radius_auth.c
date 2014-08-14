@@ -1086,8 +1086,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 			DPRINT(LOG_DEBUG, "Username now %s from ruser", user);
 		} else {
 			DPRINT(LOG_DEBUG, "Skipping ruser for non-root auth");
-		};
-	};
+		}
+	}
 
 	/*
 	 * Get the IP address of the authentication server
