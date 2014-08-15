@@ -1196,6 +1196,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 		/* It's full challenge-response, we should have echo on */
 		retval = rad_converse(pamh, PAM_PROMPT_ECHO_ON, challenge, &resp2challenge);
+		PAM_FAIL_CHECK;
 
 		/* now that we've got a response, build a new radius packet */
 		build_radius_packet(request, user, resp2challenge, &config);
