@@ -186,27 +186,27 @@ static uint32_t ipstr2long(char *ip_str) {
 		*ptr = '\0';
 
 		while(*ip_str != '.' && *ip_str != '\0' && count < 4) {
-			if(!isdigit(*ip_str)) {
-				return((uint32_t)0);
+			if (!isdigit(*ip_str)) {
+				return (uint32_t)0;
 			}
 			*ptr++ = *ip_str++;
 			count++;
 		}
 
-		if(count >= 4 || count == 0) {
-			return((uint32_t)0);
+		if (count >= 4 || count == 0) {
+			return (uint32_t)0;
 		}
 
 		*ptr = '\0';
 		cur_byte = atoi(buf);
-		if(cur_byte < 0 || cur_byte > 255) {
-			return ((uint32_t)0);
+		if (cur_byte < 0 || cur_byte > 255) {
+			return (uint32_t)0;
 		}
 
 		ip_str++;
 		ipaddr = ipaddr << 8 | (uint32_t)cur_byte;
 	}
-	return(ipaddr);
+	return ipaddr;
 }
 
 /*
@@ -219,23 +219,23 @@ static int good_ipaddr(char *addr) {
 	dot_count = 0;
 	digit_count = 0;
 	while(*addr != '\0' && *addr != ' ') {
-		if(*addr == '.') {
+		if (*addr == '.') {
 			dot_count++;
 			digit_count = 0;
-		} else if(!isdigit(*addr)) {
+		} else if (!isdigit(*addr)) {
 			dot_count = 5;
 		} else {
 			digit_count++;
-			if(digit_count > 3) {
+			if (digit_count > 3) {
 				dot_count = 5;
 			}
 		}
 		addr++;
 	}
-	if(dot_count != 3) {
-		return(-1);
+	if (dot_count != 3) {
+		return -1;
 	} else {
-		return(0);
+		return 0;
 	}
 }
 
@@ -246,13 +246,13 @@ static int good_ipaddr(char *addr) {
 static uint32_t get_ipaddr(char *host) {
 	struct hostent *hp;
 
-	if(good_ipaddr(host) == 0) {
-		return(ipstr2long(host));
-	} else if((hp = gethostbyname(host)) == (struct hostent *)NULL) {
-		return((uint32_t)0);
+	if (good_ipaddr(host) == 0) {
+		return ipstr2long(host);
+	} else if ((hp = gethostbyname(host)) == (struct hostent *)NULL) {
+		return (uint32_t)0;
 	}
 
-	return(ntohl(*(uint32_t *)hp->h_addr));
+	return ntohl(*(uint32_t *)hp->h_addr);
 }
 
 /*
@@ -1118,7 +1118,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &password);
 	PAM_FAIL_CHECK;
 
-	if(password) {
+	if (password) {
 		password = strdup(password);
 		DPRINT(LOG_DEBUG, "Got password %s", password);
 	}
@@ -1403,12 +1403,12 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
 	/* grab the old password (if any) from the previous password layer */
 	retval = pam_get_item(pamh, PAM_OLDAUTHTOK, (CONST void **) &password);
 	PAM_FAIL_CHECK;
-	if(password) password = strdup(password);
+	if (password) password = strdup(password);
 
 	/* grab the new password (if any) from the previous password layer */
 	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &new_password);
 	PAM_FAIL_CHECK;
-	if(new_password) new_password = strdup(new_password);
+	if (new_password) new_password = strdup(new_password);
 
 	/* preliminary password change checks. */
 	if (flags & PAM_PRELIM_CHECK) {
