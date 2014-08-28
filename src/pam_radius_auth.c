@@ -60,11 +60,12 @@
 
 #include "pam_radius_auth.h"
 
-#define DPRINT if (ctrl & PAM_DEBUG_ARG) _pam_log
+#define DPRINT if (opt_debug & PAM_DEBUG_ARG) _pam_log
 
 /* internal data */
 static CONST char *pam_module_name = "pam_radius_auth";
 static char conf_file[BUFFER_SIZE]; /* configuration file */
+static int opt_debug = FALSE;		/* print debug info */
 
 /* we need to save these from open_session to close_session, since
  * when close_session will be called we won't be root anymore and
@@ -110,6 +111,12 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		/* generic options */
 		if (!strncmp(*argv,"conf=",5)) {
+			/* protect against buffer overflow */
+			if (strlen(*argv+5) >= sizeof(conf_file)) {
+				_pam_log(LOG_ERR, "conf= argument too long");
+				conf_file[0] = 0;
+				return 0;
+			}
 			strcpy(conf_file,*argv+5);
 
 		} else if (!strcmp(*argv, "use_first_pass")) {
@@ -142,6 +149,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		} else if (!strcmp(*argv, "debug")) {
 			ctrl |= PAM_DEBUG_ARG;
 			conf->debug = 1;
+			opt_debug = TRUE;
 
 		} else if (!strncmp(*argv, "prompt=", 7)) {
 			if (!strncmp(conf->prompt, (char*)*argv+7, MAXPROMPT)) {
@@ -193,27 +201,27 @@ static uint32_t ipstr2long(char *ip_str) {
 		*ptr = '\0';
 
 		while(*ip_str != '.' && *ip_str != '\0' && count < 4) {
-			if(!isdigit(*ip_str)) {
-				return((uint32_t)0);
+			if (!isdigit(*ip_str)) {
+				return (uint32_t)0;
 			}
 			*ptr++ = *ip_str++;
 			count++;
 		}
 
-		if(count >= 4 || count == 0) {
-			return((uint32_t)0);
+		if (count >= 4 || count == 0) {
+			return (uint32_t)0;
 		}
 
 		*ptr = '\0';
 		cur_byte = atoi(buf);
-		if(cur_byte < 0 || cur_byte > 255) {
-			return ((uint32_t)0);
+		if (cur_byte < 0 || cur_byte > 255) {
+			return (uint32_t)0;
 		}
 
 		ip_str++;
 		ipaddr = ipaddr << 8 | (uint32_t)cur_byte;
 	}
-	return(ipaddr);
+	return ipaddr;
 }
 
 /*
@@ -226,23 +234,23 @@ static int good_ipaddr(char *addr) {
 	dot_count = 0;
 	digit_count = 0;
 	while(*addr != '\0' && *addr != ' ') {
-		if(*addr == '.') {
+		if (*addr == '.') {
 			dot_count++;
 			digit_count = 0;
-		} else if(!isdigit(*addr)) {
+		} else if (!isdigit(*addr)) {
 			dot_count = 5;
 		} else {
 			digit_count++;
-			if(digit_count > 3) {
+			if (digit_count > 3) {
 				dot_count = 5;
 			}
 		}
 		addr++;
 	}
-	if(dot_count != 3) {
-		return(-1);
+	if (dot_count != 3) {
+		return -1;
 	} else {
-		return(0);
+		return 0;
 	}
 }
 
@@ -253,13 +261,13 @@ static int good_ipaddr(char *addr) {
 static uint32_t get_ipaddr(char *host) {
 	struct hostent *hp;
 
-	if(good_ipaddr(host) == 0) {
-		return(ipstr2long(host));
-	} else if((hp = gethostbyname(host)) == (struct hostent *)NULL) {
-		return((uint32_t)0);
+	if (good_ipaddr(host) == 0) {
+		return ipstr2long(host);
+	} else if ((hp = gethostbyname(host)) == (struct hostent *)NULL) {
+		return (uint32_t)0;
 	}
 
-	return(ntohl(*(uint32_t *)hp->h_addr));
+	return ntohl(*(uint32_t *)hp->h_addr);
 }
 
 /*
@@ -268,7 +276,6 @@ static uint32_t get_ipaddr(char *host) {
 static int host2server(radius_server_t *server)
 {
 	char *p;
-	int ctrl = 1; /* for DPRINT */
 
 	if ((p = strchr(server->hostname, ':')) != NULL) {
 		*(p++) = '\0';		/* split the port off from the host name */
@@ -297,15 +304,15 @@ static int host2server(radius_server_t *server)
 			if (p) {			/* maybe it's not "radius" */
 				svp = getservbyname (p, "udp");
 				/* quotes allow distinction from above, lest p be radius or radacct */
-				DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %d.\n", p, svp);
+				DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %p.\n", p, svp);
 				*(--p) = ':';		/* be sure to put the delimiter back */
 			} else {
 				if (!server->accounting) {
 					svp = getservbyname ("radius", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %d.\n", svp);
+					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %p.\n", svp);
 				} else {
 					svp = getservbyname ("radacct", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %d.\n", svp);
+					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %p.\n", svp);
 				}
 			}
 
@@ -787,6 +794,8 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 	/* loop over all available servers */
 	while (server != NULL) {
+		/* clear the response */
+		memset(response, 0, sizeof(AUTH_HDR));
 
 		/* only look up IP information as necessary */
 		if ((retval = host2server(server)) != PAM_SUCCESS) {
@@ -1092,8 +1101,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 			DPRINT(LOG_DEBUG, "Username now %s from ruser", user);
 		} else {
 			DPRINT(LOG_DEBUG, "Skipping ruser for non-root auth");
-		};
-	};
+		}
+	}
 
 	/*
 	 * Get the IP address of the authentication server
@@ -1124,7 +1133,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &password);
 	PAM_FAIL_CHECK;
 
-	if(password) {
+	if (password) {
 		password = strdup(password);
 		DPRINT(LOG_DEBUG, "Got password %s", password);
 	}
@@ -1202,6 +1211,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 		/* It's full challenge-response, we should have echo on */
 		retval = rad_converse(pamh, PAM_PROMPT_ECHO_ON, challenge, &resp2challenge);
+		PAM_FAIL_CHECK;
 
 		/* now that we've got a response, build a new radius packet */
 		build_radius_packet(request, user, resp2challenge, &config);
@@ -1230,9 +1240,7 @@ error:
 		}
 	}
 
-	if (ctrl & PAM_DEBUG_ARG) {
-		_pam_log(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
-	}
+	DPRINT(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
 
 	close(config.sockfd);
 	cleanup(config.server);
@@ -1411,12 +1419,12 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
 	/* grab the old password (if any) from the previous password layer */
 	retval = pam_get_item(pamh, PAM_OLDAUTHTOK, (CONST void **) &password);
 	PAM_FAIL_CHECK;
-	if(password) password = strdup(password);
+	if (password) password = strdup(password);
 
 	/* grab the new password (if any) from the previous password layer */
 	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &new_password);
 	PAM_FAIL_CHECK;
-	if(new_password) new_password = strdup(new_password);
+	if (new_password) new_password = strdup(new_password);
 
 	/* preliminary password change checks. */
 	if (flags & PAM_PRELIM_CHECK) {
