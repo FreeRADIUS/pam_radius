@@ -62,8 +62,9 @@ client_id=bar  - send a NAS-Identifier RADIUS attribute with string
                  This feature may be disabled by using 'client_id='.
                  i.e. A blank client ID.
 
-retry = #      - allow a number of retries before continuing to the next
-                 authentication module
+retry = #      - How many times to re-send a packet if there is no
+		 response.  Once the retry count has been reached,
+		 the module fails, and PAM continues to the next module.
 
 use_authtok    - force the use of a previously entered password.
                  This is  needed for pluggable password strength checking
