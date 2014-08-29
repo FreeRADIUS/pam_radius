@@ -163,6 +163,10 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				memset(conf->prompt, 0, sizeof(conf->prompt));
 				snprintf(conf->prompt, MAXPROMPT, "%s: ", (char*)*argv+7);
 			}
+
+		} else if (!strncmp(*argv, "max_challenge=", 14)) {
+			conf->max_challenge = atoi(*argv+14);
+
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", *argv);
 		}
@@ -1067,6 +1071,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	char *resp2challenge = NULL;
 	int ctrl;
 	int retval = PAM_AUTH_ERR;
+	int num_challenge = 0;
 
 	char recv_buffer[4096];
 	char send_buffer[4096];
@@ -1225,6 +1230,18 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		PAM_FAIL_CHECK;
 
 		DPRINT(LOG_DEBUG, "Got response to challenge code %d", response->code);
+
+		/*
+		 * max_challenge limits the # of challenges a server can issue
+		 * It's a workaround for buggy servers
+		 */
+		if (config.max_challenge > 0 && response->code == PW_ACCESS_CHALLENGE) {
+			num_challenge++;
+			if (num_challenge >= config.max_challenge) {
+				DPRINT(LOG_DEBUG, "maximum number of challenges (%d) reached, failing", num_challenge);
+				break;
+			}
+		}
 	}
 
 	/* Whew! Done the pasword checks, look for an authentication acknowledge */
