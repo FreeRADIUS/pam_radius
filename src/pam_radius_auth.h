@@ -70,6 +70,7 @@ typedef struct radius_conf_t {
 	int localifdown;
 	char *client_id;
 	int accounting_bug;
+	int max_challenge;
 	int sockfd;
 	int debug;
 	char prompt[MAXPROMPT];
