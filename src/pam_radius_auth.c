@@ -1223,6 +1223,11 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		/* request->code is already PW_AUTHENTICATION_REQUEST */
 		request->id++;		/* one up from the request */
 
+		if (rhost) {
+			add_attribute(request, PW_CALLING_STATION_ID, (unsigned char *) rhost,
+				      strlen(rhost));
+		}
+
 		/* copy the state over from the servers response */
 		add_attribute(request, PW_STATE, a_state->data, a_state->length - 2);
 
