@@ -92,6 +92,10 @@ prompt=string  - Specifies the prompt, without the ': ', that PAM should
                  relevant string different from Password) in this
                  situation.
 
+force_prompt   - Request a new password and not using the previously entered
+                 password. This usefull for multi-factor authentication
+                 when used with a Token.
+
 max_challenge=# - configure maximum number of challenges that a server
                   may request. This is a workaround for broken servers
                   and disabled by default.
