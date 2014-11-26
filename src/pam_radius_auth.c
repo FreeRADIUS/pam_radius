@@ -164,6 +164,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				snprintf(conf->prompt, MAXPROMPT, "%s: ", (char*)*argv+7);
 			}
 
+		} else if (!strcmp(*argv, "force_prompt")) {
+			conf->force_prompt= TRUE;
+
 		} else if (!strncmp(*argv, "max_challenge=", 14)) {
 			conf->max_challenge = atoi(*argv+14);
 
@@ -1135,8 +1138,11 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	request->id = request->vector[0]; /* this should be evenly distributed */
 
 	/* grab the password (if any) from the previous authentication layer */
-	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &password);
-	PAM_FAIL_CHECK;
+        if (!config.force_prompt) {
+                DPRINT(LOG_DEBUG, "ignore last_pass, force_prompt set");
+		retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &password);
+		PAM_FAIL_CHECK;
+        }
 
 	if (password) {
 		password = strdup(password);
