@@ -27,6 +27,7 @@
  * 1.3.15 - Implement retry option, miscellanous bug fixes.
  * 1.3.16 - Miscellaneous fixes (see CVS for history)
  * 1.3.17 - Security fixes
+ * 1.4.0 - bind to any open port, add add force_prompt, max_challenge, prompt options
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -594,7 +595,6 @@ static void cleanup(radius_server_t *server)
 static int initialize(radius_conf_t *conf, int accounting)
 {
 	struct sockaddr salocal;
-	uint16_t local_port;
 	char hostname[BUFFER_SIZE];
 	char secret[BUFFER_SIZE];
 
@@ -682,19 +682,12 @@ static int initialize(radius_conf_t *conf, int accounting)
 	memset ((char *) s_in, '\0', sizeof(struct sockaddr));
 	s_in->sin_family = AF_INET;
 	s_in->sin_addr.s_addr = INADDR_ANY;
+	s_in->sin_port = 0;
+	
 
-	/*
-	 *	Use our process ID as a local port for RADIUS.
-	 */
-	local_port = (getpid() & 0x7fff) + 1024;
-	do {
-		local_port++;
-		s_in->sin_port = htons(local_port);
-	} while ((bind(conf->sockfd, &salocal, sizeof (struct sockaddr_in)) < 0) && (local_port < 64000));
-
-	if (local_port >= 64000) {
+	if (bind(conf->sockfd, &salocal, sizeof (struct sockaddr_in)) < 0) {
+		_pam_log(LOG_ERR, "Failed binding to port: %s", strerror(errno));
 		close(conf->sockfd);
-		_pam_log(LOG_ERR, "No open port we could bind to.");
 		return PAM_AUTHINFO_UNAVAIL;
 	}
 
