@@ -65,10 +65,11 @@ pam_radius_auth.so: pam_radius_auth.o md5.o
 #
 #  Check a distribution out of the source tree, and make a tar file.
 #
+.PHONY: dist
 dist:
-	cvs export -D now -d pam_radius-${VERSION} pam_radius
-	tar -cf pam_radius-${VERSION}.tar pam_radius-${VERSION}
-	rm -rf pam_radius-${VERSION}
+	git archive --format=tar --prefix=pam_radius-$(VERSION)/ master | gzip > pam_radius-$(VERSION).tar.gz
+	gpg --default-key aland@freeradius.org -b pam_radius-$(VERSION).tar.gz
+
 
 ######################################################################
 #
