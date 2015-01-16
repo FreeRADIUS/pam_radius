@@ -179,7 +179,13 @@ AC_CHECK_HEADERS( \
 )
 
 AC_CHECK_HEADERS(security/pam_appl.h pam/pam_appl.h)
-AC_CHECK_HEADERS(security/pam_modules.h pam/pam_modules.h)
+AC_CHECK_HEADERS(security/pam_modules.h pam/pam_modules.h, [], [],
+  [
+    #ifdef HAVE_SECURITY_PAM_APPL_H
+    #  include <security/pam_appl.h>
+    #endif
+  ]
+)
 if test x"$ac_cv_header_security_pam_modules_h" != x"yes" -a x"$ac_cv_header_pam_modules_appl_h" != x"yes"; then
 	AC_MSG_ERROR([pam_modules.h not found])
 fi
