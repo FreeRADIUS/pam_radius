@@ -1,12 +1,12 @@
 %define name pam_radius_auth
-%define version 1.3.15
+%define version 1.4.1
 %define release 0
 
 Name: %{name}
 Summary: PAM Module for RADIUS Authentication
 Version: %{version}
 Release: %{release}
-Source: ftp://ftp.freeradius.org/pub/radius/pam_radius_auth-%{version}.tar
+Source: ftp://ftp.freeradius.org/pub/freeradius/pam_radius-%{version}.tar
 URL: http://www.freeradius.org/pam_radius_auth/
 Group: System Environment/Libraries
 BuildRoot: %{_tmppath}/%{name}-buildroot
@@ -30,9 +30,6 @@ mkdir -p %{buildroot}/lib/security
 cp -p pam_radius_auth.so %{buildroot}/lib/security
 mkdir -p %{buildroot}/etc/raddb
 [ -f %{buildroot}/etc/raddb/server ] || cp -p pam_radius_auth.conf %{buildroot}/etc/raddb/server
-chown root %{buildroot}/etc/raddb/server
-chgrp root %{buildroot}/etc/raddb/server
-chmod 0600 %{buildroot}/etc/raddb/server
 
 %clean
 [ "$RPM_BUILD_ROOT" != "/" ] && rm -rf $RPM_BUILD_ROOT
@@ -44,6 +41,7 @@ rmdir /etc/raddb || true
 %defattr(-,root,root,0755)
 %doc README INSTALL USAGE Changelog
 %config /etc/raddb/server
+%config %attr(0600,root,root) /etc/raddb/server
 /lib/security/pam_radius_auth.so
 
 %changelog
