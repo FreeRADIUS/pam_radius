@@ -1123,7 +1123,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 	/* now we've got a socket open, so we've got to clean it up on error */
 #undef PAM_FAIL_CHECK
-#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {goto error; }
+#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {goto do_next; }
 
 	/* build and initialize the RADIUS packet */
 	request->code = PW_AUTHENTICATION_REQUEST;
@@ -1146,7 +1146,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	if (!password) {
 		if (ctrl & PAM_USE_FIRST_PASS) {
 			retval = PAM_AUTH_ERR;	/* use one pass only, stopping if it fails */
-			goto error;
+			goto do_next;
 		}
 
 		/* check to see if we send a NULL password the first time around */
@@ -1198,7 +1198,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 			/* Actually, State isn't required. */
 			_pam_log(LOG_ERR, "RADIUS Access-Challenge received with State or Reply-Message missing");
 			retval = PAM_AUTHINFO_UNAVAIL;
-			goto error;
+			goto do_next;
 		}
 
 		/*
@@ -1207,7 +1207,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		if ((a_state->length <= 2) || (a_reply->length <= 2)) {
 			_pam_log(LOG_ERR, "RADIUS Access-Challenge received with invalid State or Reply-Message");
 			retval = PAM_AUTHINFO_UNAVAIL;
-			goto error;
+			goto do_next;
 		}
 
 		memcpy(challenge, a_reply->data, a_reply->length - 2);
@@ -1253,12 +1253,12 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		retval = PAM_SUCCESS;
 	} else {
 		retval = PAM_AUTH_ERR;	/* authentication failure */
+	}
 
-error:
-		/* If there was a password pass it to the next layer */
-		if (password && *password) {
-			pam_set_item(pamh, PAM_AUTHTOK, password);
-		}
+do_next:
+	/* If there was a password pass it to the next layer */
+	if (password && *password) {
+		pam_set_item(pamh, PAM_AUTHTOK, password);
 	}
 
 	DPRINT(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
