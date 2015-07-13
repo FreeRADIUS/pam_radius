@@ -35,11 +35,12 @@ all: pam_radius_auth.so
 #
 #  Build the object file from the C source.
 #
-pam_radius_auth.o: src/pam_radius_auth.c src/pam_radius_auth.h
-	$(CC) $(CFLAGS) -c $< -o $@
+src/pam_radius_auth.o: src/pam_radius_auth.c src/pam_radius_auth.h
+	@$(MAKE) -C src $(notdir $@)
 
-md5.o: src/md5.c src/md5.h
-	$(CC) $(CFLAGS) -c $< -o $@
+src/md5.o: src/md5.c src/md5.h
+	@$(MAKE) -C src $(notdir $@)
+
 #
 # This is what should work on Irix:
 #pam_radius_auth.so: pam_radius_auth.o md5.o
@@ -58,8 +59,8 @@ md5.o: src/md5.c src/md5.h
 #
 #	gcc -shared pam_radius_auth.o md5.o -lpam -lc -o pam_radius_auth.so
 #
-pam_radius_auth.so: pam_radius_auth.o md5.o
-	$(CC) $(LDFLAGS) pam_radius_auth.o md5.o -lpam -o pam_radius_auth.so
+pam_radius_auth.so: src/pam_radius_auth.o src/md5.o
+	$(CC) $(LDFLAGS) $^ -lpam -o pam_radius_auth.so
 
 ######################################################################
 #
