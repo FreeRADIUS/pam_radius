@@ -76,5 +76,6 @@ dist:
 #
 #  Clean up everything
 #
+.PHONY: clean
 clean:
-	@rm -f *~ *.so *.o
+	@rm -f *~ *.so *.o src/*.o src/*~
