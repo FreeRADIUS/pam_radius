@@ -15,6 +15,7 @@ VERSION=1.4.0
 #  If you're not using GCC, then you'll have to change the CFLAGS.
 #
 CFLAGS += -Wall -fPIC
+
 #
 # On Irix, use this with MIPSPRo C Compiler, and don't forget to export CC=cc
 # gcc on Irix does not work yet for pam_radius
@@ -37,6 +38,8 @@ all: pam_radius_auth.so
 #
 #  Build the object file from the C source.
 #
+export CFLAGS
+
 src/pam_radius_auth.o: src/pam_radius_auth.c src/pam_radius_auth.h
 	@$(MAKE) -C src $(notdir $@)
 
