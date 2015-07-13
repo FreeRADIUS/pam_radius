@@ -25,6 +25,8 @@ CFLAGS += -Wall -fPIC
 #LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
 LDFLAGS += -shared
 
+$(if $(wildcard src/config.h),,$(error You must run './configure [options]' before doing 'make'))
+
 ######################################################################
 #
 #  The default rule to build everything.
