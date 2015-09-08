@@ -605,6 +605,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	struct sockaddr_in * s_in;
 	int timeout;
 	int line = 0;
+	char src_ip[MAX_IP_LEN];
 
 	/* the first time around, read the configuration file */
 	if ((fserver = fopen (conf_file, "r")) == (FILE*)NULL) {
@@ -632,7 +633,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 		}
 
 		timeout = 3;
-		if (sscanf(p, "%s %s %d", hostname, secret, &timeout) < 2) {
+		src_ip[0] = 0;
+		if (sscanf(p, "%s %s %d %s", hostname, secret, &timeout, src_ip) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
 				 conf_file, line);
 			continue;			/* invalid line */
@@ -681,7 +683,11 @@ static int initialize(radius_conf_t *conf, int accounting)
 	s_in = (struct sockaddr_in *) &salocal;
 	memset ((char *) s_in, '\0', sizeof(struct sockaddr));
 	s_in->sin_family = AF_INET;
-	s_in->sin_addr.s_addr = INADDR_ANY;
+	if (!*src_ip) {
+		s_in->sin_addr.s_addr = INADDR_ANY;
+	} else {
+		if (!inet_aton(src_ip, (struct in_addr *) &(s_in->sin_addr.s_addr))) s_in->sin_addr.s_addr = INADDR_ANY;
+	}
 	s_in->sin_port = 0;
 	
 

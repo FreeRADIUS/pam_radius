@@ -20,6 +20,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 
 #if defined(HAVE_SECURITY_PAM_APPL_H)
 #  include <security/pam_appl.h>
@@ -118,6 +119,9 @@ typedef struct radius_conf_t {
 #define PAM_TRY_FIRST_PASS 8
 #define PAM_RUSER_ARG      16
 
+
+/* buffer size for IP address in string form */
+#define MAX_IP_LEN 16
 
 /* Module defines */
 #ifndef BUFFER_SIZE
