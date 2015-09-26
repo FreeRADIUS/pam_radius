@@ -84,7 +84,7 @@ typedef struct radius_conf_t {
  *************************************************************************/
 
 #ifndef CONST
-#  if defined(__sun) || defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__)
+#  if defined(__sun) || defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__)
 /*
  *  On older versions of Solaris, you may have to change this to:
  *  #define CONST
