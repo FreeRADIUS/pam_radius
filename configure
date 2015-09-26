@@ -5267,7 +5267,7 @@ fi
 HOSTINFO=$host
 
 
-if test "x$werror" == "xyes"; then
+if test "x$werror" = "xyes"; then
   CFLAGS="-Werror $CFLAGS"
 fi
 
