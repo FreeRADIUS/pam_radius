@@ -209,7 +209,7 @@ static uint32_t ipstr2long(char *ip_str) {
 		*ptr = '\0';
 
 		while(*ip_str != '.' && *ip_str != '\0' && count < 4) {
-			if (!isdigit(*ip_str)) {
+			if (!isdigit((unsigned char)*ip_str)) {
 				return (uint32_t)0;
 			}
 			*ptr++ = *ip_str++;
@@ -245,7 +245,7 @@ static int good_ipaddr(char *addr) {
 		if (*addr == '.') {
 			dot_count++;
 			digit_count = 0;
-		} else if (!isdigit(*addr)) {
+		} else if (!isdigit((unsigned char)*addr)) {
 			dot_count = 5;
 		} else {
 			digit_count++;
@@ -298,7 +298,7 @@ static int host2server(radius_server_t *server)
 	 *	If the server port hasn't already been defined, go get it.
 	 */
 	if (!server->port) {
-		if (p && isdigit(*p)) {	/* the port looks like it's a number */
+		if (p && isdigit((unsigned char)*p)) {	/* the port looks like it's a number */
 			unsigned int i = atoi(p) & 0xffff;
 
 			if (!server->accounting) {
