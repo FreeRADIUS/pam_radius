@@ -535,8 +535,8 @@ static void add_password(AUTH_HDR *request, unsigned char type, CONST char *pass
 		length &= ~(AUTH_PASS_LEN - 1);		/* chop it off */
 	}						/* 16*N maps to itself */
 
-	memset(hashed, 0, length);
 	memcpy(hashed, password, length);
+	memset(hashed + length, 0, sizeof(hashed) - length);
 
 	attr = find_attribute(request, PW_PASSWORD);
 
