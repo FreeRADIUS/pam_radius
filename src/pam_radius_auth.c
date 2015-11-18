@@ -64,13 +64,6 @@ static CONST char *pam_module_name = "pam_radius_auth";
 static char conf_file[BUFFER_SIZE]; /* configuration file */
 static int opt_debug = FALSE;		/* print debug info */
 
-/* we need to save these from open_session to close_session, since
- * when close_session will be called we won't be root anymore and
- * won't be able to access again the radius server configuration file
- * -- cristiang */
-static radius_server_t *live_server = NULL;
-static time_t session_time;
-
 /* logging */
 static void _pam_log(int err, CONST char *format, ...)
 {
@@ -987,7 +980,6 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			/* we've found one that does respond, forget about the other servers */
 			cleanup(server->next);
 			server->next = NULL;
-			live_server = server;	/* we've got a live one! */
 			break;
 		}
 	}
@@ -1354,9 +1346,15 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 	add_int_attribute(request, PW_ACCT_AUTHENTIC, PW_AUTH_RADIUS);
 
 	if (status == PW_STATUS_START) {
-		session_time = time(NULL);
+		time_t *session_time = malloc(sizeof(time_t));
+		time(session_time);
+		pam_set_data(pamh, "rad_session_time", (void *) session_time, _int_free);
 	} else {
-		add_int_attribute(request, PW_ACCT_SESSION_TIME, time(NULL) - session_time);
+		time_t *session_time;
+		retval = pam_get_data(pamh, "rad_session_time", (CONST void **) &session_time);
+		PAM_FAIL_CHECK;
+
+		add_int_attribute(request, PW_ACCT_SESSION_TIME, time(NULL) - *session_time);
 	}
 
 	retval = talk_radius(&config, request, response, NULL, NULL, 1);
