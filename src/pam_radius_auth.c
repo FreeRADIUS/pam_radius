@@ -203,6 +203,30 @@ static uint32_t get_ipaddr(char *host) {
 }
 
 /*
+ * Gets the UDP port number associated with a service name.
+ * The port number is returned in network byte order.
+ */
+static uint16_t get_udp_port(char *service) {
+	struct addrinfo hints;
+	struct addrinfo *results;
+	uint16_t port;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_DGRAM;
+
+	if (getaddrinfo(NULL, service, &hints, &results) == 0) {
+		struct sockaddr_in *sockaddr = (struct sockaddr_in *)results->ai_addr;
+		port = sockaddr->sin_port;
+		freeaddrinfo(results);
+	} else {
+		port = (uint16_t)0;
+	}
+
+	return port;
+}
+
+/*
  * take server->hostname, and convert it to server->ip and server->port
  */
 static int host2server(radius_server_t *server)
@@ -231,29 +255,25 @@ static int host2server(radius_server_t *server)
 				server->port = htons((uint16_t) (i + 1));
 			}
 		} else {			/* the port looks like it's a name */
-			struct servent *svp;
-
 			if (p) {			/* maybe it's not "radius" */
-				svp = getservbyname (p, "udp");
+				server->port = get_udp_port(p);
 				/* quotes allow distinction from above, lest p be radius or radacct */
-				DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %p.\n", p, svp);
+				DPRINT(LOG_DEBUG, "DEBUG: get_udp_port('%s') returned %u.\n", p, server->port);
 				*(--p) = ':';		/* be sure to put the delimiter back */
 			} else {
 				if (!server->accounting) {
-					svp = getservbyname ("radius", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %p.\n", svp);
+					server->port = get_udp_port("radius");
+					DPRINT(LOG_DEBUG, "DEBUG: get_udp_port(radius) returned %u.\n", server->port);
 				} else {
-					svp = getservbyname ("radacct", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %p.\n", svp);
+					server->port = get_udp_port("radacct");
+					DPRINT(LOG_DEBUG, "DEBUG: get_udp_port(radacct) returned %u.\n", server->port);
 				}
 			}
 
-			if (svp == (struct servent *) 0) {
+			if (!server->port) {
 				/* debugging above... */
 				return PAM_AUTHINFO_UNAVAIL;
 			}
-
-			server->port = svp->s_port;
 		}
 	}
 
