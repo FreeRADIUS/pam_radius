@@ -179,92 +179,27 @@ void _int_free(pam_handle_t * pamh, void *x, int error_status)
  *************************************************************************/
 
 /*
- * Return an IP address in host long notation from
- * one supplied in standard dot notation.
- */
-static uint32_t ipstr2long(char *ip_str) {
-	char	buf[6];
-	char	*ptr;
-	int	i;
-	int	count;
-	uint32_t	ipaddr;
-	int	cur_byte;
-
-	ipaddr = (uint32_t)0;
-
-	for(i = 0;i < 4;i++) {
-		ptr = buf;
-		count = 0;
-		*ptr = '\0';
-
-		while(*ip_str != '.' && *ip_str != '\0' && count < 4) {
-			if (!isdigit((unsigned char)*ip_str)) {
-				return (uint32_t)0;
-			}
-			*ptr++ = *ip_str++;
-			count++;
-		}
-
-		if (count >= 4 || count == 0) {
-			return (uint32_t)0;
-		}
-
-		*ptr = '\0';
-		cur_byte = atoi(buf);
-		if (cur_byte < 0 || cur_byte > 255) {
-			return (uint32_t)0;
-		}
-
-		ip_str++;
-		ipaddr = ipaddr << 8 | (uint32_t)cur_byte;
-	}
-	return ipaddr;
-}
-
-/*
- * Check for valid IP address in standard dot notation.
- */
-static int good_ipaddr(char *addr) {
-	int dot_count;
-	int digit_count;
-
-	dot_count = 0;
-	digit_count = 0;
-	while(*addr != '\0' && *addr != ' ') {
-		if (*addr == '.') {
-			dot_count++;
-			digit_count = 0;
-		} else if (!isdigit((unsigned char)*addr)) {
-			dot_count = 5;
-		} else {
-			digit_count++;
-			if (digit_count > 3) {
-				dot_count = 5;
-			}
-		}
-		addr++;
-	}
-	if (dot_count != 3) {
-		return -1;
-	} else {
-		return 0;
-	}
-}
-
-/*
  * Return an IP address in host long notation from a host
  * name or address in dot notation.
  */
 static uint32_t get_ipaddr(char *host) {
-	struct hostent *hp;
+	struct addrinfo hints;
+	struct addrinfo *results;
+	uint32_t addr;
 
-	if (good_ipaddr(host) == 0) {
-		return ipstr2long(host);
-	} else if ((hp = gethostbyname(host)) == (struct hostent *)NULL) {
-		return (uint32_t)0;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_DGRAM;
+
+	if (getaddrinfo(host, NULL, &hints, &results) == 0) {
+		struct sockaddr_in *sockaddr = (struct sockaddr_in *)results->ai_addr;
+		addr = ntohl(sockaddr->sin_addr.s_addr);
+		freeaddrinfo(results);
+	} else {
+		addr = (uint32_t)0;
 	}
 
-	return ntohl(*(uint32_t *)hp->h_addr);
+	return addr;
 }
 
 /*
@@ -726,13 +661,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 	if ((conf->server->ip.s_addr == ntohl(0x7f000001)) || (!hostname[0])) {
 		ipaddr = 0x7f000001;
 	} else {
-		struct hostent *hp;
-
-		if ((hp = gethostbyname(hostname)) == (struct hostent *) NULL) {
-			ipaddr = 0x00000000;	/* no client IP address */
-		} else {
-			ipaddr = ntohl(*(uint32_t *) hp->h_addr); /* use the first one available */
-		}
+		ipaddr = get_ipaddr(hostname);
 	}
 
 	/* If we can't find an IP address, then don't add one */
