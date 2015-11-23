@@ -179,6 +179,28 @@ void _int_free(pam_handle_t * pamh, void *x, int error_status)
  *************************************************************************/
 
 /*
+ * A strerror_r() wrapper function to deal with its nuisances.
+ */
+static void get_error_string(int errnum, char *buf, size_t buflen) {
+#if !defined(__GLIBC__) || ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && ! _GNU_SOURCE)
+	/* XSI version of strerror_r(). */
+	int retval = strerror_r(errnum, buf, buflen);
+
+	/* POSIX does not state what will happen to the buffer if the function fails.
+	 * Put it into a known state rather than leave it possibly uninitialized. */
+	if (retval != 0 && buflen > (size_t)0) {
+		buf[0] = '\0';
+	}
+#else
+	/* GNU version of strerror_r(). */
+	char tmp_buf[BUFFER_SIZE];
+	char *retval = strerror_r(errnum, tmp_buf, sizeof(tmp_buf));
+
+	snprintf(buf, buflen, "%s", retval);
+#endif
+}
+
+/*
  * Return an IP address in host long notation from a host
  * name or address in dot notation.
  */
@@ -553,8 +575,10 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 	/* the first time around, read the configuration file */
 	if ((fserver = fopen (conf_file, "r")) == (FILE*)NULL) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Could not open configuration file %s: %s\n",
-			conf_file, strerror(errno));
+			conf_file, error_string);
 		return PAM_ABORT;
 	}
 
@@ -619,7 +643,9 @@ static int initialize(radius_conf_t *conf, int accounting)
 	/* open a socket.	Dies if it fails */
 	conf->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (conf->sockfd < 0) {
-		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", strerror(errno));
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", error_string);
 		return PAM_AUTHINFO_UNAVAIL;
 	}
 
@@ -636,7 +662,9 @@ static int initialize(radius_conf_t *conf, int accounting)
 	
 
 	if (bind(conf->sockfd, &salocal, sizeof (struct sockaddr_in)) < 0) {
-		_pam_log(LOG_ERR, "Failed binding to port: %s", strerror(errno));
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
 		close(conf->sockfd);
 		return PAM_AUTHINFO_UNAVAIL;
 	}
@@ -766,8 +794,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		/* send the packet */
 		if (sendto(conf->sockfd, (char *) request, total_length, 0,
 			   &saremote, sizeof(struct sockaddr_in)) < 0) {
+			char error_string[BUFFER_SIZE];
+			get_error_string(errno, error_string, sizeof(error_string));
 			_pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
-				 server->hostname, strerror(errno));
+				 server->hostname, error_string);
 			ok = FALSE;
 			goto next;		/* skip to the next server */
 		}
@@ -816,8 +846,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					}
 
 				} else {			/* not an interrupt, it was a real error */
+					char error_string[BUFFER_SIZE];
+					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "Error waiting for response from RADIUS server %s: %s",
-						 server->hostname, strerror(errno));
+						 server->hostname, error_string);
 					ok = FALSE;
 					break;
 				}
@@ -828,8 +860,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				/* try to receive some data */
 				if ((total_length = recvfrom(conf->sockfd, (void *) response, BUFFER_SIZE,
 						     	     0, &saremote, &salen)) < 0) {
+					char error_string[BUFFER_SIZE];
+					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
-					 	 server->hostname, strerror(errno));
+					 	 server->hostname, error_string);
 					ok = FALSE;
 					break;
 
