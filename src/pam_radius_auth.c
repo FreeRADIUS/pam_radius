@@ -55,10 +55,6 @@
 #define PAM_SM_PASSWORD
 #define PAM_SM_SESSION
 
-#include <limits.h>
-#include <errno.h>
-#include <sys/time.h>
-
 #include "pam_radius_auth.h"
 
 #define DPRINT if (opt_debug & PAM_DEBUG_ARG) _pam_log
