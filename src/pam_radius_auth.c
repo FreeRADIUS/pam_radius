@@ -61,7 +61,6 @@
 
 /* internal data */
 static CONST char *pam_module_name = "pam_radius_auth";
-static char conf_file[BUFFER_SIZE]; /* configuration file */
 static int opt_debug = FALSE;		/* print debug info */
 
 /* logging */
@@ -84,7 +83,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	memset(conf, 0, sizeof(radius_conf_t)); /* ensure it's initialized */
 
-	strcpy(conf_file, CONF_FILE);
+	conf->conf_file = CONF_FILE;
 
 	/* set the default prompt */
 	snprintf(conf->prompt, MAXPROMPT, "%s: ", DEFAULT_PROMPT);
@@ -101,13 +100,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		/* generic options */
 		if (!strncmp(*argv,"conf=",5)) {
-			/* protect against buffer overflow */
-			if (strlen(*argv+5) >= sizeof(conf_file)) {
-				_pam_log(LOG_ERR, "conf= argument too long");
-				conf_file[0] = 0;
-				return 0;
-			}
-			strcpy(conf_file,*argv+5);
+			conf->conf_file = *argv+5;
 
 		} else if (!strcmp(*argv, "use_first_pass")) {
 			ctrl |= PAM_USE_FIRST_PASS;
@@ -574,11 +567,11 @@ static int initialize(radius_conf_t *conf, int accounting)
 	char src_ip[MAX_IP_LEN];
 
 	/* the first time around, read the configuration file */
-	if ((fserver = fopen (conf_file, "r")) == (FILE*)NULL) {
+	if ((fserver = fopen (conf->conf_file, "r")) == (FILE*)NULL) {
 		char error_string[BUFFER_SIZE];
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Could not open configuration file %s: %s\n",
-			conf_file, error_string);
+			conf->conf_file, error_string);
 		return PAM_ABORT;
 	}
 
@@ -604,7 +597,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		src_ip[0] = 0;
 		if (sscanf(p, "%s %s %d %s", hostname, secret, &timeout, src_ip) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
-				 conf_file, line);
+				 conf->conf_file, line);
 			continue;			/* invalid line */
 		} else {				/* read it in and save the data */
 			radius_server_t *tmp;
@@ -636,7 +629,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 	if (!server) {		/* no server found, die a horrible death */
 		_pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
-			 conf_file);
+			 conf->conf_file);
 		return PAM_AUTHINFO_UNAVAIL;
 	}
 
