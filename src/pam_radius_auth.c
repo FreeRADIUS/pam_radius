@@ -57,11 +57,10 @@
 
 #include "pam_radius_auth.h"
 
-#define DPRINT if (opt_debug & PAM_DEBUG_ARG) _pam_log
+#define DPRINT if (debug) _pam_log
 
 /* internal data */
 static CONST char *pam_module_name = "pam_radius_auth";
-static int opt_debug = FALSE;		/* print debug info */
 
 /* logging */
 static void _pam_log(int err, CONST char *format, ...)
@@ -131,8 +130,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		} else if (!strcmp(*argv, "debug")) {
 			ctrl |= PAM_DEBUG_ARG;
-			conf->debug = 1;
-			opt_debug = TRUE;
+			conf->debug = TRUE;
 
 		} else if (!strncmp(*argv, "prompt=", 7)) {
 			if (!strncmp(conf->prompt, (char*)*argv+7, MAXPROMPT)) {
@@ -244,7 +242,7 @@ static uint16_t get_udp_port(char *service) {
 /*
  * take server->hostname, and convert it to server->ip and server->port
  */
-static int host2server(radius_server_t *server)
+static int host2server(int debug, radius_server_t *server)
 {
 	char *p;
 
@@ -763,7 +761,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		memset(response, 0, sizeof(AUTH_HDR));
 
 		/* only look up IP information as necessary */
-		if ((retval = host2server(server)) != PAM_SUCCESS) {
+		if ((retval = host2server(conf->debug, server)) != PAM_SUCCESS) {
 			_pam_log(LOG_ERR,
 				 "Failed looking up IP address for RADIUS server %s (errcode=%d)",
 				 server->hostname, retval);
@@ -1036,6 +1034,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	CONST char *rhost;
 	char *resp2challenge = NULL;
 	int ctrl;
+	int debug;
 	int retval = PAM_AUTH_ERR;
 	int num_challenge = 0;
 
@@ -1046,6 +1045,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	radius_conf_t config;
 
 	ctrl = _pam_parse(argc, argv, &config);
+	debug = config.debug;
 
 	/* grab the user name */
 	retval = pam_get_user(pamh, &user, NULL);
