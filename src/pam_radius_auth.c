@@ -82,7 +82,7 @@ static void _pam_log(int err, CONST char *format, ...)
 	char buffer[BUFFER_SIZE];
 
 	va_start(args, format);
-	vsprintf(buffer, format, args);
+	vsnprintf(buffer, sizeof(buffer), format, args);
 	/* don't do openlog or closelog, but put our name in to be friendly */
 	syslog(err, "%s: %s", pam_module_name, buffer);
 	va_end(args);
