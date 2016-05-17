@@ -619,17 +619,22 @@ static int initialize(radius_conf_t *conf, int accounting)
 		p = buffer;
 
 		/*
-		 *	Skip blank lines and whitespace
+		 *	Skip whitespace
 		 */
-		while (*p && ((*p == ' ') || (*p == '\t') || (*p == '\r') || (*p == '\n'))) {
-			p++;
-		}
+		while ((*p == ' ') || (*p == '\t')) p++;
 
 		/*
-		 *	Nothing, or just a comment. Ignore the line.
+		 *	Skip blank lines and comments.
 		 */
-		if ((!*p) || (*p == '#')) {
-			continue;
+		if ((*p == '\r') || (*p == '\n') || (*p == '#')) continue;
+
+		/*
+		 *	Error out if the text is too long.
+		 */
+		if (!*p) {
+			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Line too long\n",
+				 conf_file, line);
+			break;
 		}
 
 		timeout = 3;
