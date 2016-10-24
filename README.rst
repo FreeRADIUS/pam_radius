@@ -41,9 +41,9 @@ out of the box on Linux and Solaris 2.6.
 There are minimal restrictions on using the code, as set out in the
 disclaimer and copyright notice in ``pam_radius_auth.c``.
 
-Building it is straightforward: use GNU make, and type ``make``.  If
-you've got some other weird make, you'll have to edit the Makefile to
-remove the GNU make directives  'ifeq', 'else', etc.
+Building it is straightforward: use GNU make, and type ``./configure``,
+followed by ``make``.  If you've got some other weird make, you'll
+have to edit the Makefile to remove the GNU make directives.
 
 Alan DeKok <aland@freeradius.org>
 
