@@ -1200,8 +1200,9 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	 *	challenges as we receive.
 	 */
 	while (response->code == PW_ACCESS_CHALLENGE) {
-		attribute_t *a_state, *a_reply;
+		attribute_t *a_state, *a_reply, *a_prompt;
 		char challenge[BUFFER_SIZE];
+        	int prompt;       
 
 		/* Now we do a bit more work: challenge the user, and get a response */
 		if (((a_state = find_attribute(response, PW_STATE)) == NULL) ||
@@ -1224,8 +1225,18 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		memcpy(challenge, a_reply->data, a_reply->length - 2);
 		challenge[a_reply->length - 2] = 0;
 
+		prompt = PAM_PROMPT_ECHO_ON;
+		if((a_prompt = find_attribute(response, PW_PROMPT)) != NULL){
+			uint32_t prompt_val_net = 0;
+			uint32_t prompt_val = 0;
+			memcpy((void *)&prompt_val_net, (void *) a_prompt->data, sizeof(uint32_t));
+			prompt_val = ntohl(prompt_val_net);
+			DPRINT(LOG_DEBUG, "Got Prompt=%d",prompt_val);
+			if(!prompt_val) prompt=PAM_PROMPT_ECHO_OFF;
+		}
+
 		/* It's full challenge-response, we should have echo on */
-		retval = rad_converse(pamh, PAM_PROMPT_ECHO_ON, challenge, &resp2challenge);
+		retval = rad_converse(pamh, prompt, challenge, &resp2challenge);
 		PAM_FAIL_CHECK;
 
 		/* now that we've got a response, build a new radius packet */
