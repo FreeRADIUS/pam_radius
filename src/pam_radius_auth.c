@@ -168,6 +168,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		} else if (!strcmp(*argv, "force_prompt")) {
 			conf->force_prompt= TRUE;
 
+		} else if (!strcmp(*argv, "prompt_attribute")) {
+			conf->prompt_attribute = TRUE;
+
 		} else if (!strncmp(*argv, "max_challenge=", 14)) {
 			conf->max_challenge = atoi(*argv+14);
 
@@ -1225,17 +1228,19 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		memcpy(challenge, a_reply->data, a_reply->length - 2);
 		challenge[a_reply->length - 2] = 0;
 
+		/* It's full challenge-response, default to echo on, unless the server wants it off */
 		prompt = PAM_PROMPT_ECHO_ON;
-		if((a_prompt = find_attribute(response, PW_PROMPT)) != NULL){
-			uint32_t prompt_val_net = 0;
-			uint32_t prompt_val = 0;
-			memcpy((void *)&prompt_val_net, (void *) a_prompt->data, sizeof(uint32_t));
-			prompt_val = ntohl(prompt_val_net);
-			DPRINT(LOG_DEBUG, "Got Prompt=%d",prompt_val);
-			if(!prompt_val) prompt=PAM_PROMPT_ECHO_OFF;
+                if (config.prompt_attribute) {
+			if((a_prompt = find_attribute(response, PW_PROMPT)) != NULL){
+				uint32_t prompt_val_net = 0;
+				uint32_t prompt_val = 0;
+				memcpy((void *)&prompt_val_net, (void *) a_prompt->data, sizeof(uint32_t));
+				prompt_val = ntohl(prompt_val_net);
+				DPRINT(LOG_DEBUG, "Got Prompt=%d",prompt_val);
+				if(!prompt_val) prompt=PAM_PROMPT_ECHO_OFF;
+			}
 		}
 
-		/* It's full challenge-response, we should have echo on */
 		retval = rad_converse(pamh, prompt, challenge, &resp2challenge);
 		PAM_FAIL_CHECK;
 
