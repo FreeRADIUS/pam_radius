@@ -76,7 +76,7 @@ typedef struct radius_conf_t {
 	int sockfd;
 	int debug;
 	char prompt[MAXPROMPT];
-        int prompt_attribute;
+	int prompt_attribute;
 } radius_conf_t;
 
 
