@@ -528,15 +528,15 @@ static void add_password(AUTH_HDR *request, unsigned char type, CONST char *pass
 		length = MAXPASS;
 	}
 
+	memcpy(hashed, password, length);
+	memset(hashed + length, 0, sizeof(hashed) - length);
+
 	if (length == 0) {
 		length = AUTH_PASS_LEN;			/* 0 maps to 16 */
 	} if ((length & (AUTH_PASS_LEN - 1)) != 0) {
 		length += (AUTH_PASS_LEN - 1);		/* round it up */
 		length &= ~(AUTH_PASS_LEN - 1);		/* chop it off */
 	}						/* 16*N maps to itself */
-
-	memcpy(hashed, password, length);
-	memset(hashed + length, 0, sizeof(hashed) - length);
 
 	attr = find_attribute(request, PW_PASSWORD);
 
