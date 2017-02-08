@@ -28,6 +28,7 @@
  * 1.3.16 - Miscellaneous fixes (see CVS for history)
  * 1.3.17 - Security fixes
  * 1.4.0 - bind to any open port, add add force_prompt, max_challenge, prompt options
+ * 1.4.1 - replace select with poll to allow file descriptors >=1024
  *
  *
  *   This program is free software; you can redistribute it and/or modify
@@ -736,8 +737,8 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 {
 	socklen_t salen;
 	int total_length;
-	fd_set set;
-	struct timeval tv;
+	struct pollfd pollfds[1];
+	int timeout_sec;
 	time_t now, end;
 	int rcode;
 	struct sockaddr saremote;
@@ -801,30 +802,29 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		/* ************************************************************ */
 		/* Wait for the response, and verify it. */
 		salen = sizeof(struct sockaddr);
-		tv.tv_sec = server->timeout;	/* wait for the specified time */
-		tv.tv_usec = 0;
-		FD_ZERO(&set);			/* clear out the set */
-		FD_SET(conf->sockfd, &set);	/* wait only for the RADIUS UDP socket */
+		timeout_sec = server->timeout;	/* wait for the specified time */
+		pollfds[0].fd = conf->sockfd;   /* wait only for the RADIUS UDP socket */
+		pollfds[0].events = POLLIN;     /* wait for data to read */
 
 		time(&now);
-		end = now + tv.tv_sec;
+		end = now + timeout_sec;
 
-		/* loop, waiting for the select to return data */
+		/* loop, waiting for the poll to return data */
 		ok = TRUE;
 		while (ok) {
-			rcode = select(conf->sockfd + 1, &set, NULL, NULL, &tv);
+			rcode = poll((struct pollfd*)&pollfds, 1, timeout_sec*1000);
 
-			/* select timed out */
+			/* poll timed out */
 			if (rcode == 0) {
 				_pam_log(LOG_ERR, "RADIUS server %s failed to respond", server->hostname);
 				if (--server_tries) {
 					goto send;
 				}
 				ok = FALSE;
-				break;			/* exit from the select loop */
+				break;			/* exit from the poll loop */
 			} else if (rcode < 0) {
 
-				/* select had an error */
+				/* poll returned an error */
 				if (errno == EINTR) {	/* we were interrupted */
 					time(&now);
 
@@ -833,12 +833,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 							 server->hostname);
 						if (--server_tries) goto send;
 						ok = FALSE;
-						break;		/* exit from the select loop */
+						break;		/* exit from the poll loop */
 					}
 
-					tv.tv_sec = end - now;
-					if (tv.tv_sec == 0) {	/* keep waiting */
-						tv.tv_sec = 1;
+					timeout_sec = end - now;
+					if (timeout_sec <= 0) {	/* keep waiting */
+						timeout_sec = 1;
 					}
 
 				} else {			/* not an interrupt, it was a real error */
@@ -850,8 +850,8 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					break;
 				}
 
-			/* the select returned OK */
-			} else if (FD_ISSET(conf->sockfd, &set)) {
+			/* the poll call returned OK */
+			} else if (pollfds[0].revents & POLLIN) {
 
 				/* try to receive some data */
 				if ((total_length = recvfrom(conf->sockfd, (void *) response, BUFFER_SIZE,
@@ -914,14 +914,14 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				}
 
 				/*
-				 * Whew! The select is done. It hasn't timed out, or errored out.
+				 * Whew! The poll is done. It hasn't timed out, or errored out.
 				 * It's our descriptor.	We've got some data. It's the right size.
 				 * The packet is valid.
-				 * NOW, we can skip out of the select loop, and process the packet
+				 * NOW, we can skip out of the loop, and process the packet
 				 */
 				break;
 			}
-			/* otherwise, we've got data on another descriptor, keep select'ing */
+			/* otherwise, we've got data on another descriptor, keep poll'ing */
 		}
 
 			/* go to the next server if this one didn't respond */
