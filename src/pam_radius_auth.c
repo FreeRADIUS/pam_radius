@@ -618,6 +618,14 @@ static int initialize(radius_conf_t *conf, int accounting)
 		return PAM_AUTHINFO_UNAVAIL;
 	}
 
+#ifndef HAVE_POLL_H
+	if (conf->sockfd >= FD_SETSIZE) {
+		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
+		close(conf->sockfd);
+		return PAM_AUTHINFO_UNAVAIL;
+	}
+#endif
+
 	/* set up the local end of the socket communications */
 	s_in = (struct sockaddr_in *) &salocal;
 	memset ((char *) s_in, '\0', sizeof(struct sockaddr));
