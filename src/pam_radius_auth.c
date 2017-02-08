@@ -1272,6 +1272,7 @@ PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh,int flags,int argc,CONST char *
 static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST char **argv, int status)
 {
 	CONST char *user;
+	CONST char *rhost;
 	int ctrl;
 	int retval = PAM_AUTH_ERR;
 
@@ -1336,6 +1337,19 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 		PAM_FAIL_CHECK;
 
 		add_int_attribute(request, PW_ACCT_SESSION_TIME, time(NULL) - *session_time);
+	}
+
+	/*
+	 *	Tell the server which host the user is coming from.
+	 *
+	 *	Note that this is NOT the IP address of the machine running PAM!
+	 *	It's the IP address of the client.
+	 */
+	retval = pam_get_item(pamh, PAM_RHOST, (CONST void **) &rhost);
+	PAM_FAIL_CHECK;
+	if (rhost) {
+		add_attribute(request, PW_CALLING_STATION_ID, (unsigned char *) rhost,
+			strlen(rhost));
 	}
 
 	retval = talk_radius(&config, request, response, NULL, NULL, 1);
