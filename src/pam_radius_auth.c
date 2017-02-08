@@ -709,7 +709,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 {
 	socklen_t salen;
 	int total_length;
-#ifdef WITH_POLL
+#ifdef HAVE_POLL_H
 	struct pollfd pollfds[1];
 #else
 	fd_set set;
@@ -785,7 +785,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		tv.tv_usec = 0;
 		end = now + tv.tv_sec;
 
-#ifdef WITH_POLL
+#ifdef HAVE_POLL_H
 		pollfds[0].fd = conf->sockfd;   /* wait only for the RADIUS UDP socket */
 		pollfds[0].events = POLLIN;     /* wait for data to read */
 #else
@@ -796,7 +796,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		/* loop, waiting for the network to return data */
 		ok = TRUE;
 		while (ok) {
-#ifdef WITH_POLL
+#ifdef HAVE_POLL_H
 			rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000);
 #else
 			rcode = select(conf->sockfd + 1, &set, NULL, NULL, &tv);
@@ -838,7 +838,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				}
 
 			/* the call returned OK */
-#ifdef WITH_POLL
+#ifdef HAVE_POLL_H
 			} else if (pollfds[0].revents & POLLIN) {
 #else
 			} else if (FD_ISSET(conf->sockfd, &set)) {

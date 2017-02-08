@@ -25,7 +25,7 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 
-#ifdef WITH_POLL
+#ifdef HAVE_POLL_H
 #include <poll.h>
 #endif
 
