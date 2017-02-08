@@ -3,34 +3,6 @@
  * pam_radius_auth
  *      Authenticate a user via a RADIUS session
  *
- * 0.9.0 - Didn't compile quite right.
- * 0.9.1 - Hands off passwords properly.  Solaris still isn't completely happy
- * 0.9.2 - Solaris now does challenge-response.  Added configuration file
- *         handling, and skip_passwd field
- * 1.0.0 - Added handling of port name/number, and continue on select
- * 1.1.0 - more options, password change requests work now, too.
- * 1.1.1 - Added client_id=foo (NAS-Identifier), defaulting to PAM_SERVICE
- * 1.1.2 - multi-server capability.
- * 1.2.0 - ugly merger of pam_radius.c to get full RADIUS capability
- * 1.3.0 - added my own accounting code.  Simple, clean, and neat.
- * 1.3.1 - Supports accounting port (oops!), and do accounting authentication
- * 1.3.2 - added support again for 'skip_passwd' control flag.
- * 1.3.10 - ALWAYS add Password attribute, to make packets RFC compliant.
- * 1.3.11 - Bug fixes by Jon Nelson <jnelson@securepipe.com>
- * 1.3.12 - miscellanous bug fixes.  Don't add password to accounting
- *          requests; log more errors; add NAS-Port and NAS-Port-Type
- *          attributes to ALL packets.  Some patches based on input from
- *          Grzegorz Paszka <Grzegorz.Paszka@pik-net.pl>
- * 1.3.13 - Always update the configuration file, even if we're given
- *          no options.  Patch from Jon Nelson <jnelson@securepipe.com>
- * 1.3.14 - Don't use PATH_MAX, so it builds on GNU Hurd.
- * 1.3.15 - Implement retry option, miscellanous bug fixes.
- * 1.3.16 - Miscellaneous fixes (see CVS for history)
- * 1.3.17 - Security fixes
- * 1.4.0 - bind to any open port, add add force_prompt, max_challenge, prompt options
- * 1.4.1 - replace select with poll to allow file descriptors >=1024
- *
- *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
  *   the Free Software Foundation; either version 2 of the License, or
@@ -593,7 +565,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		 */
 		if (!*p) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Line too long\n",
-				 conf_file, line);
+				 conf->conf_file, line);
 			break;
 		}
 
@@ -737,8 +709,13 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 {
 	socklen_t salen;
 	int total_length;
+#ifdef WITH_POLL
 	struct pollfd pollfds[1];
-	int timeout_sec;
+#else
+	fd_set set;
+#endif
+	struct timeval tv;
+
 	time_t now, end;
 	int rcode;
 	struct sockaddr saremote;
@@ -802,26 +779,37 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		/* ************************************************************ */
 		/* Wait for the response, and verify it. */
 		salen = sizeof(struct sockaddr);
-		timeout_sec = server->timeout;	/* wait for the specified time */
+		time(&now);
+
+		tv.tv_sec = server->timeout;    /* wait for the specified time */
+		tv.tv_usec = 0;
+		end = now + tv.tv_sec;
+
+#ifdef WITH_POLL
 		pollfds[0].fd = conf->sockfd;   /* wait only for the RADIUS UDP socket */
 		pollfds[0].events = POLLIN;     /* wait for data to read */
+#else
+		FD_ZERO(&set);                  /* clear out the set */
+		FD_SET(conf->sockfd, &set);     /* wait only for the RADIUS UDP socket */
+#endif
 
-		time(&now);
-		end = now + timeout_sec;
-
-		/* loop, waiting for the poll to return data */
+		/* loop, waiting for the network to return data */
 		ok = TRUE;
 		while (ok) {
-			rcode = poll((struct pollfd*)&pollfds, 1, timeout_sec*1000);
+#ifdef WITH_POLL
+			rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000);
+#else
+			rcode = select(conf->sockfd + 1, &set, NULL, NULL, &tv);
+#endif
 
-			/* poll timed out */
+			/* timed out */
 			if (rcode == 0) {
 				_pam_log(LOG_ERR, "RADIUS server %s failed to respond", server->hostname);
 				if (--server_tries) {
 					goto send;
 				}
 				ok = FALSE;
-				break;			/* exit from the poll loop */
+				break;			/* exit from the loop */
 			} else if (rcode < 0) {
 
 				/* poll returned an error */
@@ -833,14 +821,13 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 							 server->hostname);
 						if (--server_tries) goto send;
 						ok = FALSE;
-						break;		/* exit from the poll loop */
+						break;		/* exit from the loop */
 					}
 
-					timeout_sec = end - now;
-					if (timeout_sec <= 0) {	/* keep waiting */
-						timeout_sec = 1;
+					tv.tv_sec = end - now;
+					if (tv.tv_sec == 0) {   /* keep waiting */
+						tv.tv_sec = 1;
 					}
-
 				} else {			/* not an interrupt, it was a real error */
 					char error_string[BUFFER_SIZE];
 					get_error_string(errno, error_string, sizeof(error_string));
@@ -850,8 +837,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					break;
 				}
 
-			/* the poll call returned OK */
+			/* the call returned OK */
+#ifdef WITH_POLL
 			} else if (pollfds[0].revents & POLLIN) {
+#else
+			} else if (FD_ISSET(conf->sockfd, &set)) {
+#endif
 
 				/* try to receive some data */
 				if ((total_length = recvfrom(conf->sockfd, (void *) response, BUFFER_SIZE,
@@ -921,7 +912,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				 */
 				break;
 			}
-			/* otherwise, we've got data on another descriptor, keep poll'ing */
+			/* otherwise, we've got data on another descriptor, keep checking the network */
 		}
 
 			/* go to the next server if this one didn't respond */

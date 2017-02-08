@@ -24,7 +24,10 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+
+#ifdef WITH_POLL
 #include <poll.h>
+#endif
 
 #if defined(HAVE_SECURITY_PAM_APPL_H)
 #  include <security/pam_appl.h>
