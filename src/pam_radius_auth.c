@@ -1120,6 +1120,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 			retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF, config.prompt, &password);
 			PAM_FAIL_CHECK;
 
+		} else {
+			password = strdup("");
 		}
 	} /* end of password == NULL */
 
