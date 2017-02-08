@@ -3,6 +3,9 @@
 
 #include "config.h"
 
+#include <limits.h>
+#include <errno.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
@@ -43,40 +46,6 @@
 /* Defaults for the prompt option */
 #define MAXPROMPT 33               /* max prompt length, including '\0' */
 #define DEFAULT_PROMPT "Password"  /* default prompt, without the ': '  */
-
-/*************************************************************************
- * Additional RADIUS definitions
- *************************************************************************/
-
-/* Per-attribute structure */
-typedef struct attribute_t {
-	unsigned char attribute;
-	unsigned char length;
-	unsigned char data[1];
-} attribute_t;
-
-typedef struct radius_server_t {
-	struct radius_server_t *next;
-	struct in_addr ip;
-	uint16_t port;
-	char *hostname;
-	char *secret;
-	int timeout;
-	int accounting;
-} radius_server_t;
-
-typedef struct radius_conf_t {
-	radius_server_t *server;
-	int retries;
-	int localifdown;
-	char *client_id;
-	int accounting_bug;
-	int force_prompt;
-	int max_challenge;
-	int sockfd;
-	int debug;
-	char prompt[MAXPROMPT];
-} radius_conf_t;
 
 
 /*************************************************************************
@@ -142,5 +111,41 @@ typedef struct radius_conf_t {
 #undef TRUE
 #define TRUE !FALSE
 #endif
+
+
+/*************************************************************************
+ * Additional RADIUS definitions
+ *************************************************************************/
+
+/* Per-attribute structure */
+typedef struct attribute_t {
+	unsigned char attribute;
+	unsigned char length;
+	unsigned char data[1];
+} attribute_t;
+
+typedef struct radius_server_t {
+	struct radius_server_t *next;
+	struct in_addr ip;
+	uint16_t port;
+	char *hostname;
+	char *secret;
+	int timeout;
+	int accounting;
+} radius_server_t;
+
+typedef struct radius_conf_t {
+	radius_server_t *server;
+	int retries;
+	int localifdown;
+	char *client_id;
+	int accounting_bug;
+	int force_prompt;
+	int max_challenge;
+	int sockfd;
+	int debug;
+	CONST char *conf_file;
+	char prompt[MAXPROMPT];
+} radius_conf_t;
 
 #endif /* PAM_RADIUS_H */

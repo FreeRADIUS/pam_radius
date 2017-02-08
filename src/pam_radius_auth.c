@@ -55,25 +55,12 @@
 #define PAM_SM_PASSWORD
 #define PAM_SM_SESSION
 
-#include <limits.h>
-#include <errno.h>
-#include <sys/time.h>
-
 #include "pam_radius_auth.h"
 
-#define DPRINT if (opt_debug & PAM_DEBUG_ARG) _pam_log
+#define DPRINT if (debug) _pam_log
 
 /* internal data */
 static CONST char *pam_module_name = "pam_radius_auth";
-static char conf_file[BUFFER_SIZE]; /* configuration file */
-static int opt_debug = FALSE;		/* print debug info */
-
-/* we need to save these from open_session to close_session, since
- * when close_session will be called we won't be root anymore and
- * won't be able to access again the radius server configuration file
- * -- cristiang */
-static radius_server_t *live_server = NULL;
-static time_t session_time;
 
 /* logging */
 static void _pam_log(int err, CONST char *format, ...)
@@ -95,7 +82,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	memset(conf, 0, sizeof(radius_conf_t)); /* ensure it's initialized */
 
-	strcpy(conf_file, CONF_FILE);
+	conf->conf_file = CONF_FILE;
 
 	/* set the default prompt */
 	snprintf(conf->prompt, MAXPROMPT, "%s: ", DEFAULT_PROMPT);
@@ -112,13 +99,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		/* generic options */
 		if (!strncmp(*argv,"conf=",5)) {
-			/* protect against buffer overflow */
-			if (strlen(*argv+5) >= sizeof(conf_file)) {
-				_pam_log(LOG_ERR, "conf= argument too long");
-				conf_file[0] = 0;
-				return 0;
-			}
-			strcpy(conf_file,*argv+5);
+			conf->conf_file = *argv+5;
 
 		} else if (!strcmp(*argv, "use_first_pass")) {
 			ctrl |= PAM_USE_FIRST_PASS;
@@ -149,8 +130,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		} else if (!strcmp(*argv, "debug")) {
 			ctrl |= PAM_DEBUG_ARG;
-			conf->debug = 1;
-			opt_debug = TRUE;
+			conf->debug = TRUE;
 
 		} else if (!strncmp(*argv, "prompt=", 7)) {
 			if (!strncmp(conf->prompt, (char*)*argv+7, MAXPROMPT)) {
@@ -190,76 +170,25 @@ void _int_free(pam_handle_t * pamh, void *x, int error_status)
  *************************************************************************/
 
 /*
- * Return an IP address in host long notation from
- * one supplied in standard dot notation.
+ * A strerror_r() wrapper function to deal with its nuisances.
  */
-static uint32_t ipstr2long(char *ip_str) {
-	char	buf[6];
-	char	*ptr;
-	int	i;
-	int	count;
-	uint32_t	ipaddr;
-	int	cur_byte;
+static void get_error_string(int errnum, char *buf, size_t buflen) {
+#if !defined(__GLIBC__) || ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && ! _GNU_SOURCE)
+	/* XSI version of strerror_r(). */
+	int retval = strerror_r(errnum, buf, buflen);
 
-	ipaddr = (uint32_t)0;
-
-	for(i = 0;i < 4;i++) {
-		ptr = buf;
-		count = 0;
-		*ptr = '\0';
-
-		while(*ip_str != '.' && *ip_str != '\0' && count < 4) {
-			if (!isdigit((unsigned char)*ip_str)) {
-				return (uint32_t)0;
-			}
-			*ptr++ = *ip_str++;
-			count++;
-		}
-
-		if (count >= 4 || count == 0) {
-			return (uint32_t)0;
-		}
-
-		*ptr = '\0';
-		cur_byte = atoi(buf);
-		if (cur_byte < 0 || cur_byte > 255) {
-			return (uint32_t)0;
-		}
-
-		ip_str++;
-		ipaddr = ipaddr << 8 | (uint32_t)cur_byte;
+	/* POSIX does not state what will happen to the buffer if the function fails.
+	 * Put it into a known state rather than leave it possibly uninitialized. */
+	if (retval != 0 && buflen > (size_t)0) {
+		buf[0] = '\0';
 	}
-	return ipaddr;
-}
+#else
+	/* GNU version of strerror_r(). */
+	char tmp_buf[BUFFER_SIZE];
+	char *retval = strerror_r(errnum, tmp_buf, sizeof(tmp_buf));
 
-/*
- * Check for valid IP address in standard dot notation.
- */
-static int good_ipaddr(char *addr) {
-	int dot_count;
-	int digit_count;
-
-	dot_count = 0;
-	digit_count = 0;
-	while(*addr != '\0' && *addr != ' ') {
-		if (*addr == '.') {
-			dot_count++;
-			digit_count = 0;
-		} else if (!isdigit((unsigned char)*addr)) {
-			dot_count = 5;
-		} else {
-			digit_count++;
-			if (digit_count > 3) {
-				dot_count = 5;
-			}
-		}
-		addr++;
-	}
-	if (dot_count != 3) {
-		return -1;
-	} else {
-		return 0;
-	}
+	snprintf(buf, buflen, "%s", retval);
+#endif
 }
 
 /*
@@ -267,21 +196,53 @@ static int good_ipaddr(char *addr) {
  * name or address in dot notation.
  */
 static uint32_t get_ipaddr(char *host) {
-	struct hostent *hp;
+	struct addrinfo hints;
+	struct addrinfo *results;
+	uint32_t addr;
 
-	if (good_ipaddr(host) == 0) {
-		return ipstr2long(host);
-	} else if ((hp = gethostbyname(host)) == (struct hostent *)NULL) {
-		return (uint32_t)0;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_DGRAM;
+
+	if (getaddrinfo(host, NULL, &hints, &results) == 0) {
+		struct sockaddr_in *sockaddr = (struct sockaddr_in *)results->ai_addr;
+		addr = ntohl(sockaddr->sin_addr.s_addr);
+		freeaddrinfo(results);
+	} else {
+		addr = (uint32_t)0;
 	}
 
-	return ntohl(*(uint32_t *)hp->h_addr);
+	return addr;
+}
+
+/*
+ * Gets the UDP port number associated with a service name.
+ * The port number is returned in network byte order.
+ */
+static uint16_t get_udp_port(char *service) {
+	struct addrinfo hints;
+	struct addrinfo *results;
+	uint16_t port;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_DGRAM;
+
+	if (getaddrinfo(NULL, service, &hints, &results) == 0) {
+		struct sockaddr_in *sockaddr = (struct sockaddr_in *)results->ai_addr;
+		port = sockaddr->sin_port;
+		freeaddrinfo(results);
+	} else {
+		port = (uint16_t)0;
+	}
+
+	return port;
 }
 
 /*
  * take server->hostname, and convert it to server->ip and server->port
  */
-static int host2server(radius_server_t *server)
+static int host2server(int debug, radius_server_t *server)
 {
 	char *p;
 
@@ -307,29 +268,25 @@ static int host2server(radius_server_t *server)
 				server->port = htons((uint16_t) (i + 1));
 			}
 		} else {			/* the port looks like it's a name */
-			struct servent *svp;
-
 			if (p) {			/* maybe it's not "radius" */
-				svp = getservbyname (p, "udp");
+				server->port = get_udp_port(p);
 				/* quotes allow distinction from above, lest p be radius or radacct */
-				DPRINT(LOG_DEBUG, "DEBUG: getservbyname('%s', udp) returned %p.\n", p, svp);
+				DPRINT(LOG_DEBUG, "DEBUG: get_udp_port('%s') returned %u.\n", p, server->port);
 				*(--p) = ':';		/* be sure to put the delimiter back */
 			} else {
 				if (!server->accounting) {
-					svp = getservbyname ("radius", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radius, udp) returned %p.\n", svp);
+					server->port = get_udp_port("radius");
+					DPRINT(LOG_DEBUG, "DEBUG: get_udp_port(radius) returned %u.\n", server->port);
 				} else {
-					svp = getservbyname ("radacct", "udp");
-					DPRINT(LOG_DEBUG, "DEBUG: getservbyname(radacct, udp) returned %p.\n", svp);
+					server->port = get_udp_port("radacct");
+					DPRINT(LOG_DEBUG, "DEBUG: get_udp_port(radacct) returned %u.\n", server->port);
 				}
 			}
 
-			if (svp == (struct servent *) 0) {
+			if (!server->port) {
 				/* debugging above... */
 				return PAM_AUTHINFO_UNAVAIL;
 			}
-
-			server->port = svp->s_port;
 		}
 	}
 
@@ -608,9 +565,11 @@ static int initialize(radius_conf_t *conf, int accounting)
 	char src_ip[MAX_IP_LEN];
 
 	/* the first time around, read the configuration file */
-	if ((fserver = fopen (conf_file, "r")) == (FILE*)NULL) {
+	if ((fserver = fopen (conf->conf_file, "r")) == (FILE*)NULL) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Could not open configuration file %s: %s\n",
-			conf_file, strerror(errno));
+			conf->conf_file, error_string);
 		return PAM_ABORT;
 	}
 
@@ -641,7 +600,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		src_ip[0] = 0;
 		if (sscanf(p, "%s %s %d %s", hostname, secret, &timeout, src_ip) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
-				 conf_file, line);
+				 conf->conf_file, line);
 			continue;			/* invalid line */
 		} else {				/* read it in and save the data */
 			radius_server_t *tmp;
@@ -673,14 +632,16 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 	if (!server) {		/* no server found, die a horrible death */
 		_pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
-			 conf_file);
+			 conf->conf_file);
 		return PAM_AUTHINFO_UNAVAIL;
 	}
 
 	/* open a socket.	Dies if it fails */
 	conf->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (conf->sockfd < 0) {
-		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", strerror(errno));
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", error_string);
 		return PAM_AUTHINFO_UNAVAIL;
 	}
 
@@ -697,7 +658,9 @@ static int initialize(radius_conf_t *conf, int accounting)
 	
 
 	if (bind(conf->sockfd, &salocal, sizeof (struct sockaddr_in)) < 0) {
-		_pam_log(LOG_ERR, "Failed binding to port: %s", strerror(errno));
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
 		close(conf->sockfd);
 		return PAM_AUTHINFO_UNAVAIL;
 	}
@@ -742,13 +705,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 	if ((conf->server->ip.s_addr == ntohl(0x7f000001)) || (!hostname[0])) {
 		ipaddr = 0x7f000001;
 	} else {
-		struct hostent *hp;
-
-		if ((hp = gethostbyname(hostname)) == (struct hostent *) NULL) {
-			ipaddr = 0x00000000;	/* no client IP address */
-		} else {
-			ipaddr = ntohl(*(uint32_t *) hp->h_addr); /* use the first one available */
-		}
+		ipaddr = get_ipaddr(hostname);
 	}
 
 	/* If we can't find an IP address, then don't add one */
@@ -809,7 +766,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		memset(response, 0, sizeof(AUTH_HDR));
 
 		/* only look up IP information as necessary */
-		if ((retval = host2server(server)) != PAM_SUCCESS) {
+		if ((retval = host2server(conf->debug, server)) != PAM_SUCCESS) {
 			_pam_log(LOG_ERR,
 				 "Failed looking up IP address for RADIUS server %s (errcode=%d)",
 				 server->hostname, retval);
@@ -833,8 +790,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		/* send the packet */
 		if (sendto(conf->sockfd, (char *) request, total_length, 0,
 			   &saremote, sizeof(struct sockaddr_in)) < 0) {
+			char error_string[BUFFER_SIZE];
+			get_error_string(errno, error_string, sizeof(error_string));
 			_pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
-				 server->hostname, strerror(errno));
+				 server->hostname, error_string);
 			ok = FALSE;
 			goto next;		/* skip to the next server */
 		}
@@ -883,8 +842,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					}
 
 				} else {			/* not an interrupt, it was a real error */
+					char error_string[BUFFER_SIZE];
+					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "Error waiting for response from RADIUS server %s: %s",
-						 server->hostname, strerror(errno));
+						 server->hostname, error_string);
 					ok = FALSE;
 					break;
 				}
@@ -895,8 +856,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				/* try to receive some data */
 				if ((total_length = recvfrom(conf->sockfd, (void *) response, BUFFER_SIZE,
 						     	     0, &saremote, &salen)) < 0) {
+					char error_string[BUFFER_SIZE];
+					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
-					 	 server->hostname, strerror(errno));
+					 	 server->hostname, error_string);
 					ok = FALSE;
 					break;
 
@@ -996,7 +959,6 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			/* we've found one that does respond, forget about the other servers */
 			cleanup(server->next);
 			server->next = NULL;
-			live_server = server;	/* we've got a live one! */
 			break;
 		}
 	}
@@ -1077,6 +1039,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	CONST char *rhost;
 	char *resp2challenge = NULL;
 	int ctrl;
+	int debug;
 	int retval = PAM_AUTH_ERR;
 	int num_challenge = 0;
 
@@ -1087,6 +1050,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	radius_conf_t config;
 
 	ctrl = _pam_parse(argc, argv, &config);
+	debug = config.debug;
 
 	/* grab the user name */
 	retval = pam_get_user(pamh, &user, NULL);
@@ -1363,9 +1327,15 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 	add_int_attribute(request, PW_ACCT_AUTHENTIC, PW_AUTH_RADIUS);
 
 	if (status == PW_STATUS_START) {
-		session_time = time(NULL);
+		time_t *session_time = malloc(sizeof(time_t));
+		time(session_time);
+		pam_set_data(pamh, "rad_session_time", (void *) session_time, _int_free);
 	} else {
-		add_int_attribute(request, PW_ACCT_SESSION_TIME, time(NULL) - session_time);
+		time_t *session_time;
+		retval = pam_get_data(pamh, "rad_session_time", (CONST void **) &session_time);
+		PAM_FAIL_CHECK;
+
+		add_int_attribute(request, PW_ACCT_SESSION_TIME, time(NULL) - *session_time);
 	}
 
 	retval = talk_radius(&config, request, response, NULL, NULL, 1);
