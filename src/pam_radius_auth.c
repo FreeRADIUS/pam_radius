@@ -1274,7 +1274,6 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 {
 	CONST char *user;
 	CONST char *rhost;
-	int ctrl;
 	int retval = PAM_AUTH_ERR;
 
 	char recv_buffer[4096];
@@ -1283,7 +1282,7 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 	AUTH_HDR *response = (AUTH_HDR *) recv_buffer;
 	radius_conf_t config;
 
-	ctrl = _pam_parse(argc, argv, &config);
+	(void) _pam_parse(argc, argv, &config);
 
 	/* grab the user name */
 	retval = pam_get_user(pamh, &user, NULL);
