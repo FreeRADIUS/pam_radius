@@ -130,8 +130,8 @@ typedef struct attribute_t {
 
 typedef struct radius_server_t {
 	struct radius_server_t *next;
-	struct in_addr ip;
-	uint16_t port;
+	struct sockaddr_storage ip_storage;
+	struct sockaddr *ip;
 	char *hostname;
 	char *secret;
 	int timeout;
@@ -147,6 +147,7 @@ typedef struct radius_conf_t {
 	int force_prompt;
 	int max_challenge;
 	int sockfd;
+	int sockfd6;
 	int debug;
 	CONST char *conf_file;
 	char prompt[MAXPROMPT];
