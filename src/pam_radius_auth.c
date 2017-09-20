@@ -401,6 +401,7 @@ static void add_int_attribute(AUTH_HDR *request, unsigned char type, int data)
 
 static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
 	struct addrinfo hints;
+	struct addrinfo *ai_start;
 	struct addrinfo *ai;
 	int v4seen = 0, v6seen = 0;
 	int r;
@@ -410,10 +411,11 @@ static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_ADDRCONFIG;
 
-	r = getaddrinfo(hostname, NULL, &hints, &ai);
+	r = getaddrinfo(hostname, NULL, &hints, &ai_start);
 	if (r != 0)
 		return;
 
+	ai = ai_start;
 	while (ai != NULL) {
 		if (!v4seen && ai->ai_family == AF_INET) {
 			v4seen = 1;
@@ -427,7 +429,8 @@ static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
 		}
 		ai = ai->ai_next;
 	}
-	freeaddrinfo(ai);
+
+	freeaddrinfo(ai_start);
 }
 
 /*
