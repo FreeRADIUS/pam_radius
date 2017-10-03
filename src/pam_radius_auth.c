@@ -598,8 +598,10 @@ static int initialize(radius_conf_t *conf, int accounting)
 			server->secret = strdup(secret);
 			server->accounting = accounting;
 
-			if ((timeout < 1) || (timeout > 60)) {
+			if (timeout < 3) {
 				server->timeout = 3;
+			} else if (timeout > 60) {
+				server->timeout = 60;
 			} else {
 				server->timeout = timeout;
 			}
