@@ -517,6 +517,58 @@ static void cleanup(radius_server_t *server)
 	}
 }
 
+static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6)
+{
+	/* open a socket.	Dies if it fails */
+	*sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (*sockfd < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", error_string);
+		return -1;
+	}
+
+#ifndef HAVE_POLL_H
+	if (*sockfd >= FD_SETSIZE) {
+		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
+		return -1;
+	}
+#endif
+
+	/* set up the local end of the socket communications */
+	if (bind(*sockfd, (struct sockaddr *)salocal4, sizeof (struct sockaddr_in)) < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
+		return -1;
+	}
+
+	/* open a IPv6 socket.	Dies if it fails */
+	*sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
+	if (*sockfd6 < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed to open RADIUS IPv6 socket: %s\n", error_string);
+		return -1;
+	}
+#ifndef HAVE_POLL_H
+	if (*sockfd6 >= FD_SETSIZE) {
+		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
+		return -1;
+	}
+#endif
+
+	/* set up the local end of the socket communications */
+	if (bind(*sockfd6, (struct sockaddr *)salocal6, sizeof (struct sockaddr_in6)) < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed binding to IPv6 port: %s", error_string);
+		return -1;
+	}
+
+	return 0;
+}
+
 /*
  * allocate and open a local port for communication with the RADIUS
  * server
@@ -541,6 +593,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 	memset(&salocal6, 0, sizeof(salocal6));
 	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
+	conf->sockfd = -1;
+	conf->sockfd6 = -1;
 
 	/* the first time around, read the configuration file */
 	if ((fserver = fopen (conf->conf_file, "r")) == (FILE*)NULL) {
@@ -625,7 +679,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	if (!server) {		/* no server found, die a horrible death */
 		_pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
 			 conf->conf_file);
-		return PAM_AUTHINFO_UNAVAIL;
+		goto error;
 	}
 
 	/*
@@ -633,61 +687,18 @@ static int initialize(radius_conf_t *conf, int accounting)
 	 *	sockfd should probably be in the server struct, not in the conf struct.
 	 */
 
-	/* open a socket.	Dies if it fails */
-	conf->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (conf->sockfd < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", error_string);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-
-#ifndef HAVE_POLL_H
-	if (conf->sockfd >= FD_SETSIZE) {
-		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
-		close(conf->sockfd);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-#endif
-
-	/* set up the local end of the socket communications */
-	if (bind(conf->sockfd, (struct sockaddr *)&salocal4, sizeof (struct sockaddr_in)) < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
-		close(conf->sockfd);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-
-	/* open a IPv6 socket.	Dies if it fails */
-	conf->sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
-	if (conf->sockfd6 < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed to open RADIUS IPv6 socket: %s\n", error_string);
-		close(conf->sockfd);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-#ifndef HAVE_POLL_H
-	if (conf->sockfd6 >= FD_SETSIZE) {
-		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
-		close(conf->sockfd);
-		close(conf->sockfd6);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-#endif
-
-	/* set up the local end of the socket communications */
-	if (bind(conf->sockfd6, (struct sockaddr *)&salocal6, sizeof (struct sockaddr_in6)) < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed binding to IPv6 port: %s", error_string);
-		close(conf->sockfd);
-		close(conf->sockfd6);
-		return PAM_AUTHINFO_UNAVAIL;
+	if (initialize_sockets(&conf->sockfd, &conf->sockfd6, &salocal4, &salocal6) != 0) {
+		goto error;
 	}
 
 	return PAM_SUCCESS;
+
+error:
+	if (conf->sockfd != -1)
+		close(conf->sockfd);
+	if (conf->sockfd6 != -1)
+		close(conf->sockfd6);
+	return PAM_AUTHINFO_UNAVAIL;
 }
 
 /*
