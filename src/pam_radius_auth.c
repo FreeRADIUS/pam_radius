@@ -536,7 +536,6 @@ static int initialize(radius_conf_t *conf, int accounting)
 	int timeout;
 	int line = 0;
 	char src_ip[MAX_IP_LEN];
-	int seen_v6 = 0;
 
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
@@ -615,7 +614,6 @@ static int initialize(radius_conf_t *conf, int accounting)
 						memcpy(&salocal4, &salocal, sizeof(salocal));
 						break;
 					case AF_INET6:
-						seen_v6 = 1;
 						memcpy(&salocal6, &salocal, sizeof(salocal));
 						break;
 				}
@@ -664,8 +662,6 @@ static int initialize(radius_conf_t *conf, int accounting)
 	/* open a IPv6 socket.	Dies if it fails */
 	conf->sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
 	if (conf->sockfd6 < 0) {
-		if (!seen_v6)
-			return PAM_SUCCESS;
 		char error_string[BUFFER_SIZE];
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Failed to open RADIUS IPv6 socket: %s\n", error_string);
