@@ -513,6 +513,10 @@ static void cleanup(radius_server_t *server)
 		_pam_drop(server->hostname);
 		_pam_forget(server->secret);
 		_pam_drop(server);
+		if (server->sockfd != -1)
+			close(server->sockfd);
+		if (server->sockfd6 != -1)
+			close(server->sockfd6);
 		server = next;
 	}
 }
@@ -659,6 +663,12 @@ static int initialize(radius_conf_t *conf, int accounting)
 				server->timeout = timeout;
 			}
 			server->next = NULL;
+			server->sockfd = -1;
+			server->sockfd6 = -1;
+			memset(&salocal4, 0, sizeof(salocal4));
+			memset(&salocal6, 0, sizeof(salocal6));
+			((struct sockaddr *)&salocal4)->sa_family = AF_INET;
+			((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
 			if (src_ip[0]) {
 				memset(&salocal, 0, sizeof(salocal));
@@ -672,6 +682,12 @@ static int initialize(radius_conf_t *conf, int accounting)
 						break;
 				}
 			}
+
+			if (src_ip[0]) {
+				if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6) != 0) {
+					goto error;
+				}
+			}
 		}
 	}
 	fclose(fserver);
@@ -682,10 +698,10 @@ static int initialize(radius_conf_t *conf, int accounting)
 		goto error;
 	}
 
-	/*
-	 *	FIXME- we could have different source-ips for different servers, so
-	 *	sockfd should probably be in the server struct, not in the conf struct.
-	 */
+	memset(&salocal4, 0, sizeof(salocal4));
+	memset(&salocal6, 0, sizeof(salocal6));
+	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
+	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
 	if (initialize_sockets(&conf->sockfd, &conf->sockfd6, &salocal4, &salocal6) != 0) {
 		goto error;
@@ -698,6 +714,7 @@ error:
 		close(conf->sockfd);
 	if (conf->sockfd6 != -1)
 		close(conf->sockfd6);
+	cleanup(conf->server);
 	return PAM_AUTHINFO_UNAVAIL;
 }
 
@@ -805,7 +822,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			get_accounting_vector(request, server);
 		}
 
-		sockfd = server->ip->sa_family == AF_INET ? conf->sockfd : conf->sockfd6;
+		if (server->ip->sa_family == AF_INET) {
+			sockfd = server->sockfd != -1 ? server->sockfd : conf->sockfd;
+		} else {
+			sockfd = server->sockfd6 != -1 ? server->sockfd6 : conf->sockfd6;
+		}
+
 		total_length = ntohs(request->length);
 		server_tries = tries;
 	send:

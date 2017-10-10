@@ -136,6 +136,8 @@ typedef struct radius_server_t {
 	char *secret;
 	int timeout;
 	int accounting;
+	int sockfd;
+	int sockfd6;
 } radius_server_t;
 
 typedef struct radius_conf_t {
