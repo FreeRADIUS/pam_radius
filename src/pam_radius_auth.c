@@ -521,7 +521,7 @@ static void cleanup(radius_server_t *server)
 	}
 }
 
-static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6)
+static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
 {
 	/* open a socket.	Dies if it fails */
 	*sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -538,6 +538,19 @@ static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage
 		return -1;
 	}
 #endif
+
+	if (vrf && vrf[0]) {
+#ifdef SO_BINDTODEVICE
+		int r = setsockopt(*sockfd, SOL_SOCKET, SO_BINDTODEVICE, vrf, strlen(vrf));
+		if (r != 0) {
+			_pam_log(LOG_ERR, "Failed bind to %s: %s", vrf, strerror(errno));
+			return -1;
+		}
+#else
+		_pam_log(LOG_ERR, "No SO_BINDTODEVICE, unable to bind to: %s", vrf);
+		return -1;
+#endif
+	}
 
 	/* set up the local end of the socket communications */
 	if (bind(*sockfd, (struct sockaddr *)salocal4, sizeof (struct sockaddr_in)) < 0) {
@@ -561,6 +574,19 @@ static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage
 		return -1;
 	}
 #endif
+
+	if (vrf && vrf[0]) {
+#ifdef SO_BINDTODEVICE
+		int r = setsockopt(*sockfd6, SOL_SOCKET, SO_BINDTODEVICE, vrf, strlen(vrf));
+		if (r != 0) {
+			_pam_log(LOG_ERR, "Failed bind to %s: %s", vrf, strerror(errno));
+			return -1;
+		}
+#else
+		_pam_log(LOG_ERR, "No SO_BINDTODEVICE, unable to bind to: %s", vrf);
+		return -1;
+#endif
+	}
 
 	/* set up the local end of the socket communications */
 	if (bind(*sockfd6, (struct sockaddr *)salocal6, sizeof (struct sockaddr_in6)) < 0) {
@@ -593,6 +619,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	int line = 0;
 	char src_ip[MAX_IP_LEN];
 	int valid_src_ip;
+	char vrf[IFNAMSIZ];
 
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
@@ -635,7 +662,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 		timeout = 3;
 		src_ip[0] = 0;
-		if (sscanf(p, "%s %s %d %s", hostname, secret, &timeout, src_ip) < 2) {
+		vrf[0] = 0;
+		if (sscanf(p, "%s %s %d %s %s", hostname, secret, &timeout, src_ip, vrf) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
 				 conf->conf_file, line);
 			continue;			/* invalid line */
@@ -671,6 +699,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 			((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 			((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 			valid_src_ip = -1;
+			vrf[IFNAMSIZ - 1] = 0;
 
 			if (src_ip[0]) {
 				memset(&salocal, 0, sizeof(salocal));
@@ -687,8 +716,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 				}
 			}
 
-			if (valid_src_ip == 0) {
-				if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6) != 0) {
+			if (valid_src_ip == 0 || vrf[0]) {
+				if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
 					goto error;
 				}
 			}
@@ -707,7 +736,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
-	if (initialize_sockets(&conf->sockfd, &conf->sockfd6, &salocal4, &salocal6) != 0) {
+	if (initialize_sockets(&conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
 		goto error;
 	}
 

@@ -202,6 +202,17 @@ AC_CHECK_HEADERS(net/if.h, [], [],
   ]
 )
 
+dnl #
+dnl #  Linux requires sys/socket.h before linux/if.h
+dnl #
+AC_CHECK_HEADERS([linux/if.h],[],[],
+  [
+    #if HAVE_SYS_SOCKET_H
+    #  include <sys/socket.h>
+    #endif
+  ]
+)
+
 dnl #############################################################
 dnl #
 dnl #  4. Checks for typedefs
@@ -306,6 +317,7 @@ AC_CHECK_FUNCS( \
   inet_aton \
   inet_pton \
   inet_ntop \
+  setsockopt \
   strlcat \
   strlcpy
 )
