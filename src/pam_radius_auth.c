@@ -592,6 +592,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	int timeout;
 	int line = 0;
 	char src_ip[MAX_IP_LEN];
+	int valid_src_ip;
 
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
@@ -669,21 +670,24 @@ static int initialize(radius_conf_t *conf, int accounting)
 			memset(&salocal6, 0, sizeof(salocal6));
 			((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 			((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
+			valid_src_ip = -1;
 
 			if (src_ip[0]) {
 				memset(&salocal, 0, sizeof(salocal));
-				get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);
-				switch (salocal.ss_family) {
-					case AF_INET:
-						memcpy(&salocal4, &salocal, sizeof(salocal));
-						break;
-					case AF_INET6:
-						memcpy(&salocal6, &salocal, sizeof(salocal));
-						break;
+				valid_src_ip = get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);
+				if (valid_src_ip == 0) {
+					switch (salocal.ss_family) {
+						case AF_INET:
+							memcpy(&salocal4, &salocal, sizeof(salocal));
+							break;
+						case AF_INET6:
+							memcpy(&salocal6, &salocal, sizeof(salocal));
+							break;
+					}
 				}
 			}
 
-			if (src_ip[0]) {
+			if (valid_src_ip == 0) {
 				if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6) != 0) {
 					goto error;
 				}
