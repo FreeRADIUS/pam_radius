@@ -25,6 +25,12 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 
+#if defined(HAVE_LINUX_IF_H)
+#include <linux/if.h>
+#else
+#define IFNAMSIZ 16 /* fallback to current value */
+#endif
+
 #ifdef HAVE_POLL_H
 #include <poll.h>
 #endif
@@ -136,6 +142,9 @@ typedef struct radius_server_t {
 	char *secret;
 	int timeout;
 	int accounting;
+	int sockfd;
+	int sockfd6;
+	char vrf[IFNAMSIZ];
 } radius_server_t;
 
 typedef struct radius_conf_t {

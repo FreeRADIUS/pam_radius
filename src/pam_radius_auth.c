@@ -513,8 +513,90 @@ static void cleanup(radius_server_t *server)
 		_pam_drop(server->hostname);
 		_pam_forget(server->secret);
 		_pam_drop(server);
+		if (server->sockfd != -1)
+			close(server->sockfd);
+		if (server->sockfd6 != -1)
+			close(server->sockfd6);
 		server = next;
 	}
+}
+
+static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
+{
+	/* open a socket.	Dies if it fails */
+	*sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (*sockfd < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", error_string);
+		return -1;
+	}
+
+#ifndef HAVE_POLL_H
+	if (*sockfd >= FD_SETSIZE) {
+		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
+		return -1;
+	}
+#endif
+
+	if (vrf && vrf[0]) {
+#ifdef SO_BINDTODEVICE
+		int r = setsockopt(*sockfd, SOL_SOCKET, SO_BINDTODEVICE, vrf, strlen(vrf));
+		if (r != 0) {
+			_pam_log(LOG_ERR, "Failed bind to %s: %s", vrf, strerror(errno));
+			return -1;
+		}
+#else
+		_pam_log(LOG_ERR, "No SO_BINDTODEVICE, unable to bind to: %s", vrf);
+		return -1;
+#endif
+	}
+
+	/* set up the local end of the socket communications */
+	if (bind(*sockfd, (struct sockaddr *)salocal4, sizeof (struct sockaddr_in)) < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
+		return -1;
+	}
+
+	/* open a IPv6 socket.	Dies if it fails */
+	*sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
+	if (*sockfd6 < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed to open RADIUS IPv6 socket: %s\n", error_string);
+		return -1;
+	}
+#ifndef HAVE_POLL_H
+	if (*sockfd6 >= FD_SETSIZE) {
+		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
+		return -1;
+	}
+#endif
+
+	if (vrf && vrf[0]) {
+#ifdef SO_BINDTODEVICE
+		int r = setsockopt(*sockfd6, SOL_SOCKET, SO_BINDTODEVICE, vrf, strlen(vrf));
+		if (r != 0) {
+			_pam_log(LOG_ERR, "Failed bind to %s: %s", vrf, strerror(errno));
+			return -1;
+		}
+#else
+		_pam_log(LOG_ERR, "No SO_BINDTODEVICE, unable to bind to: %s", vrf);
+		return -1;
+#endif
+	}
+
+	/* set up the local end of the socket communications */
+	if (bind(*sockfd6, (struct sockaddr *)salocal6, sizeof (struct sockaddr_in6)) < 0) {
+		char error_string[BUFFER_SIZE];
+		get_error_string(errno, error_string, sizeof(error_string));
+		_pam_log(LOG_ERR, "Failed binding to IPv6 port: %s", error_string);
+		return -1;
+	}
+
+	return 0;
 }
 
 /*
@@ -536,12 +618,15 @@ static int initialize(radius_conf_t *conf, int accounting)
 	int timeout;
 	int line = 0;
 	char src_ip[MAX_IP_LEN];
-	int seen_v6 = 0;
+	int valid_src_ip;
+	char vrf[IFNAMSIZ];
 
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
 	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
+	conf->sockfd = -1;
+	conf->sockfd6 = -1;
 
 	/* the first time around, read the configuration file */
 	if ((fserver = fopen (conf->conf_file, "r")) == (FILE*)NULL) {
@@ -577,7 +662,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 		timeout = 3;
 		src_ip[0] = 0;
-		if (sscanf(p, "%s %s %d %s", hostname, secret, &timeout, src_ip) < 2) {
+		vrf[0] = 0;
+		if (sscanf(p, "%s %s %d %s %s", hostname, secret, &timeout, src_ip, vrf) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
 				 conf->conf_file, line);
 			continue;			/* invalid line */
@@ -606,18 +692,33 @@ static int initialize(radius_conf_t *conf, int accounting)
 				server->timeout = timeout;
 			}
 			server->next = NULL;
+			server->sockfd = -1;
+			server->sockfd6 = -1;
+			memset(&salocal4, 0, sizeof(salocal4));
+			memset(&salocal6, 0, sizeof(salocal6));
+			((struct sockaddr *)&salocal4)->sa_family = AF_INET;
+			((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
+			valid_src_ip = -1;
+			vrf[IFNAMSIZ - 1] = 0;
 
 			if (src_ip[0]) {
 				memset(&salocal, 0, sizeof(salocal));
-				get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);
-				switch (salocal.ss_family) {
-					case AF_INET:
-						memcpy(&salocal4, &salocal, sizeof(salocal));
-						break;
-					case AF_INET6:
-						seen_v6 = 1;
-						memcpy(&salocal6, &salocal, sizeof(salocal));
-						break;
+				valid_src_ip = get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);
+				if (valid_src_ip == 0) {
+					switch (salocal.ss_family) {
+						case AF_INET:
+							memcpy(&salocal4, &salocal, sizeof(salocal));
+							break;
+						case AF_INET6:
+							memcpy(&salocal6, &salocal, sizeof(salocal));
+							break;
+					}
+				}
+			}
+
+			if (valid_src_ip == 0 || vrf[0]) {
+				if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
+					goto error;
 				}
 			}
 		}
@@ -627,71 +728,27 @@ static int initialize(radius_conf_t *conf, int accounting)
 	if (!server) {		/* no server found, die a horrible death */
 		_pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
 			 conf->conf_file);
-		return PAM_AUTHINFO_UNAVAIL;
+		goto error;
 	}
 
-	/*
-	 *	FIXME- we could have different source-ips for different servers, so
-	 *	sockfd should probably be in the server struct, not in the conf struct.
-	 */
+	memset(&salocal4, 0, sizeof(salocal4));
+	memset(&salocal6, 0, sizeof(salocal6));
+	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
+	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
-	/* open a socket.	Dies if it fails */
-	conf->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (conf->sockfd < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", error_string);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-
-#ifndef HAVE_POLL_H
-	if (conf->sockfd >= FD_SETSIZE) {
-		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
-		close(conf->sockfd);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-#endif
-
-	/* set up the local end of the socket communications */
-	if (bind(conf->sockfd, (struct sockaddr *)&salocal4, sizeof (struct sockaddr_in)) < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
-		close(conf->sockfd);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-
-	/* open a IPv6 socket.	Dies if it fails */
-	conf->sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
-	if (conf->sockfd6 < 0) {
-		if (!seen_v6)
-			return PAM_SUCCESS;
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed to open RADIUS IPv6 socket: %s\n", error_string);
-		close(conf->sockfd);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-#ifndef HAVE_POLL_H
-	if (conf->sockfd6 >= FD_SETSIZE) {
-		_pam_log(LOG_ERR, "Unusable socket, FD is larger than %d\n", FD_SETSIZE);
-		close(conf->sockfd);
-		close(conf->sockfd6);
-		return PAM_AUTHINFO_UNAVAIL;
-	}
-#endif
-
-	/* set up the local end of the socket communications */
-	if (bind(conf->sockfd6, (struct sockaddr *)&salocal6, sizeof (struct sockaddr_in6)) < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed binding to IPv6 port: %s", error_string);
-		close(conf->sockfd);
-		close(conf->sockfd6);
-		return PAM_AUTHINFO_UNAVAIL;
+	if (initialize_sockets(&conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
+		goto error;
 	}
 
 	return PAM_SUCCESS;
+
+error:
+	if (conf->sockfd != -1)
+		close(conf->sockfd);
+	if (conf->sockfd6 != -1)
+		close(conf->sockfd6);
+	cleanup(conf->server);
+	return PAM_AUTHINFO_UNAVAIL;
 }
 
 /*
@@ -798,7 +855,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			get_accounting_vector(request, server);
 		}
 
-		sockfd = server->ip->sa_family == AF_INET ? conf->sockfd : conf->sockfd6;
+		if (server->ip->sa_family == AF_INET) {
+			sockfd = server->sockfd != -1 ? server->sockfd : conf->sockfd;
+		} else {
+			sockfd = server->sockfd6 != -1 ? server->sockfd6 : conf->sockfd6;
+		}
+
 		total_length = ntohs(request->length);
 		server_tries = tries;
 	send:
