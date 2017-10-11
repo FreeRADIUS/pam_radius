@@ -613,8 +613,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 	char buffer[BUFFER_SIZE];
 	char *p;
-	FILE *fserver;
-	radius_server_t *server = NULL;
+	FILE *fp;
+	radius_server_t *server, **last;
 	int timeout;
 	int line = 0;
 	char src_ip[MAX_IP_LEN];
@@ -629,15 +629,22 @@ static int initialize(radius_conf_t *conf, int accounting)
 	conf->sockfd6 = -1;
 
 	/* the first time around, read the configuration file */
-	if ((fserver = fopen (conf->conf_file, "r")) == (FILE*)NULL) {
+	fp = fopen (conf->conf_file, "r");
+	if (!fp) {
 		char error_string[BUFFER_SIZE];
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Could not open configuration file %s: %s\n",
-			conf->conf_file, error_string);
+			 conf->conf_file, error_string);
 		return PAM_ABORT;
 	}
 
-	while (!feof(fserver) && (fgets (buffer, sizeof(buffer), fserver) != (char*) NULL) && (!ferror(fserver))) {
+	conf->server = NULL;
+	last = &conf->server;
+
+	/*
+	 *	Read the file
+	 */
+	while (!feof(fp) && (fgets (buffer, sizeof(buffer), fp) != NULL) && (!ferror(fp))) {
 		line++;
 		p = buffer;
 
@@ -660,77 +667,94 @@ static int initialize(radius_conf_t *conf, int accounting)
 			break;
 		}
 
+		/*
+		 *	Initialize the optional variables.
+		 */
 		timeout = 3;
 		src_ip[0] = 0;
 		vrf[0] = 0;
+
+		/*
+		 *	Scan the line for data.
+		 */
 		if (sscanf(p, "%s %s %d %s %s", hostname, secret, &timeout, src_ip, vrf) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
 				 conf->conf_file, line);
 			continue;			/* invalid line */
-		} else {				/* read it in and save the data */
-			radius_server_t *tmp;
+		}
 
-			tmp = malloc(sizeof(radius_server_t));
-			if (server) {
-				server->next = tmp;
-				server = server->next;
-			} else {
-				conf->server = tmp;
-				server= tmp;		/* first time */
+		/*
+		 *	Fill in the relevant fields.
+		 */
+		server = malloc(sizeof(radius_server_t));
+		memset(server, 0, sizeof(*server));
+		*last = server;
+		server->next = NULL;
+		last = &server->next;
+
+		/* sometime later do memory checks here */
+		server->hostname = strdup(hostname);
+		server->secret = strdup(secret);
+		server->accounting = accounting;
+
+		/*
+		 *	Clamp the timeouts to reasonable values.
+		 */
+		if (timeout < 3) {
+			server->timeout = 3;
+		} else if (timeout > 60) {
+			server->timeout = 60;
+		} else {
+			server->timeout = timeout;
+		}
+
+		server->sockfd = -1;
+		server->sockfd6 = -1;
+
+		/*
+		 *	No source IP for this socket, it uses the
+		 *	global one.
+		 */
+		if (!src_ip[0]) continue;
+
+		memset(&salocal4, 0, sizeof(salocal4));
+		memset(&salocal6, 0, sizeof(salocal6));
+		((struct sockaddr *)&salocal4)->sa_family = AF_INET;
+		((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
+
+		valid_src_ip = -1;
+		vrf[IFNAMSIZ - 1] = 0;
+
+		memset(&salocal, 0, sizeof(salocal));
+		valid_src_ip = get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);
+		if (valid_src_ip == 0) {
+			switch (salocal.ss_family) {
+			case AF_INET:
+				memcpy(&salocal4, &salocal, sizeof(salocal));
+				break;
+			case AF_INET6:
+				memcpy(&salocal6, &salocal, sizeof(salocal));
+				break;
 			}
+		}
 
-			/* sometime later do memory checks here */
-			server->hostname = strdup(hostname);
-			server->secret = strdup(secret);
-			server->accounting = accounting;
-
-			if (timeout < 3) {
-				server->timeout = 3;
-			} else if (timeout > 60) {
-				server->timeout = 60;
-			} else {
-				server->timeout = timeout;
-			}
-			server->next = NULL;
-			server->sockfd = -1;
-			server->sockfd6 = -1;
-			memset(&salocal4, 0, sizeof(salocal4));
-			memset(&salocal6, 0, sizeof(salocal6));
-			((struct sockaddr *)&salocal4)->sa_family = AF_INET;
-			((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
-			valid_src_ip = -1;
-			vrf[IFNAMSIZ - 1] = 0;
-
-			if (src_ip[0]) {
-				memset(&salocal, 0, sizeof(salocal));
-				valid_src_ip = get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);
-				if (valid_src_ip == 0) {
-					switch (salocal.ss_family) {
-						case AF_INET:
-							memcpy(&salocal4, &salocal, sizeof(salocal));
-							break;
-						case AF_INET6:
-							memcpy(&salocal6, &salocal, sizeof(salocal));
-							break;
-					}
-				}
-			}
-
-			if (valid_src_ip == 0 || vrf[0]) {
-				if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
-					goto error;
-				}
+		if (valid_src_ip == 0 || vrf[0]) {
+			if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
+				goto error;
 			}
 		}
 	}
-	fclose(fserver);
+	fclose(fp);
 
-	if (!server) {		/* no server found, die a horrible death */
+	if (!conf->server) {		/* no server found, die a horrible death */
 		_pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
 			 conf->conf_file);
 		goto error;
 	}
 
+	/*
+	 *	Open the global sockets.
+	 */
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
 	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
