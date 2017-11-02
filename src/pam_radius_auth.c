@@ -512,11 +512,11 @@ static void cleanup(radius_server_t *server)
 		next = server->next;
 		_pam_drop(server->hostname);
 		_pam_forget(server->secret);
-		_pam_drop(server);
 		if (server->sockfd != -1)
 			close(server->sockfd);
 		if (server->sockfd6 != -1)
 			close(server->sockfd6);
+		_pam_drop(server);
 		server = next;
 	}
 }
