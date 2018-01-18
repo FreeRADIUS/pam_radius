@@ -58,41 +58,6 @@
 #define DEFAULT_PROMPT "Password"  /* default prompt, without the ': '  */
 
 /*************************************************************************
- * Additional RADIUS definitions
- *************************************************************************/
-
-/* Per-attribute structure */
-typedef struct attribute_t {
-	unsigned char attribute;
-	unsigned char length;
-	unsigned char data[1];
-} attribute_t;
-
-typedef struct radius_server_t {
-	struct radius_server_t *next;
-	struct in_addr ip;
-	uint16_t port;
-	char *hostname;
-	char *secret;
-	int timeout;
-	int accounting;
-} radius_server_t;
-
-typedef struct radius_conf_t {
-	radius_server_t *server;
-	int retries;
-	int localifdown;
-	char *client_id;
-	int accounting_bug;
-	int force_prompt;
-	int max_challenge;
-	int sockfd;
-	int debug;
-	char prompt[MAXPROMPT];
-	int prompt_attribute;
-} radius_conf_t;
-
-/*************************************************************************
  * Platform specific defines
  *************************************************************************/
 
