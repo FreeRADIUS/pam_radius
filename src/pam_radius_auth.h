@@ -57,6 +57,7 @@
 #define MAXPROMPT 33               /* max prompt length, including '\0' */
 #define DEFAULT_PROMPT "Password"  /* default prompt, without the ': '  */
 
+
 /*************************************************************************
  * Platform specific defines
  *************************************************************************/
