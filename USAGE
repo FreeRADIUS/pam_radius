@@ -100,5 +100,10 @@ max_challenge=# - configure maximum number of challenges that a server
                   may request. This is a workaround for broken servers
                   and disabled by default.
 
+prompt_attribute - Enable honoring of Prompt attribute sent from server for 
+                   challenge-response to enable/disable of echoing of user 
+                   input. Without this option all user input during 
+                   challenge-response will be echoed. See RFC2869 Section 5.10
+
 ---------------------------------------------------------------------------
 
