@@ -849,6 +849,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 	int server_tries;
 	int retval;
 	int sockfd;
+	socklen_t salen;
 
 	/* ************************************************************ */
 	/* Now that we're done building the request, we can send it */
@@ -891,9 +892,15 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		total_length = ntohs(request->length);
 		server_tries = tries;
 	send:
+		if (server->ip->sa_family == AF_INET) {
+			salen = sizeof(struct sockaddr_in);
+		} else {
+			salen = sizeof(struct sockaddr_in6);
+		}
+
 		/* send the packet */
 		if (sendto(sockfd, (char *) request, total_length, 0,
-			   server->ip, sizeof(struct sockaddr_storage)) < 0) {
+			   server->ip, salen) < 0) {
 			char error_string[BUFFER_SIZE];
 			get_error_string(errno, error_string, sizeof(error_string));
 			_pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
