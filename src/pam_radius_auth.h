@@ -161,6 +161,7 @@ typedef struct radius_conf_t {
 	CONST char *conf_file;
 	char prompt[MAXPROMPT];
 	int prompt_attribute;
+	int privilege_level;
 } radius_conf_t;
 
 #endif /* PAM_RADIUS_H */

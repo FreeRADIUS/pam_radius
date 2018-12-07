@@ -120,6 +120,7 @@ typedef struct pw_auth_hdr {
 #define PW_PORT_LIMIT                   62      /* integer */
 #define PW_LOGIN_LAT_PORT               63      /* string */
 #define PW_PROMPT                       76      /* integer */
+#define PW_MANAGEMENT_PRIVILEGE_LEVEL   136     /* integer */
 
 #define	PW_NAS_IPV6_ADDRESS	       	95	/* octets */
 

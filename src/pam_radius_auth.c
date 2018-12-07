@@ -127,6 +127,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		} else if (!strncmp(*argv, "max_challenge=", 14)) {
 			conf->max_challenge = atoi(*argv+14);
 
+		} else if (!strcmp(*argv, "privilege_level")) {
+			conf->privilege_level = TRUE;
+
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", *argv);
 		}
@@ -1364,6 +1367,50 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	/* Whew! Done the pasword checks, look for an authentication acknowledge */
 	if (response->code == PW_AUTHENTICATION_ACK) {
 		retval = PAM_SUCCESS;
+
+		/* Read Management-Privilege-Level attribute from the response */
+		/* RFC 5607:
+		 *  The Management-Privilege-Level (136) Attribute indicates the integer-
+		 *  valued privilege level to be assigned for management access for the
+		 *  authenticated user.  Many NASes provide the notion of differentiated
+		 *  management privilege levels denoted by an integer value.  The
+		 *  specific access rights conferred by each value are implementation
+		 *  dependent.  It MAY be used in both Access-Request and Access-Accept
+		 *  packets.
+
+		 *  The management access level indicated in this attribute, received in
+		 *  an Access-Accept packet, MUST be applied to the session authorized by
+		 *  the Access-Accept.  If the NAS supports this attribute, but the
+		 *  privilege level is unknown, the NAS MUST treat the Access-Accept
+		 *  packet as if it had been an Access-Reject.
+		 */
+
+		if(config.privilege_level) {
+			char priv[21];
+			attribute_t *a_mpl;
+			int val;
+
+			if ((a_mpl = find_attribute(response, PW_MANAGEMENT_PRIVILEGE_LEVEL)) == NULL) {
+				_pam_log(LOG_ERR, "RADIUS Access-Accept received with Management-Privilege-Level missing");
+				goto do_next;
+			}
+
+			if (a_mpl->length != 6) {
+				_pam_log(LOG_ERR, "RADIUS Access-Accept received with invalid Management-Privilege-Level attribute");
+				goto do_next;
+			}
+
+			val = ntohl(*((int *)a_mpl->data));
+			sprintf(priv, "Privilege=%d", val);
+
+			/* Save Management-Privilege-Level value in PAM environment variable 'Privilige' */
+			retval = pam_putenv(pamh, priv);
+			if(retval != PAM_SUCCESS) {
+				_pam_log(LOG_ERR, "unable to set PAM environment variable : Privilege");
+				goto do_next;
+			}
+		}
+
 	} else {
 		retval = PAM_AUTH_ERR;	/* authentication failure */
 	}
