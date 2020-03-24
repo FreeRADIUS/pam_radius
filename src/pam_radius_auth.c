@@ -1418,7 +1418,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 			ip_addr.s_addr = *(int*) attr_fip->data;
 
-			sprintf(frameip, "Framed-IP-Address=%s", inet_ntoa(ip_addr));
+			snprintf(frameip, sizeof(frameip), "Framed-IP-Address=%s", inet_ntoa(ip_addr));
 			retval = pam_putenv(pamh, frameip);
 			if(retval != PAM_SUCCESS) {
 				_pam_log(LOG_ERR, "unable to set PAM environment variable : Framed-IP-Address");
@@ -1427,7 +1427,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 				_pam_log(LOG_DEBUG, "Set PAM environment variable : %s", frameip);
 			}
 		}
-
 
 	} else {
 		retval = PAM_AUTH_ERR;	/* authentication failure */
