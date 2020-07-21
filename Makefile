@@ -5,7 +5,7 @@
 # $Id: Makefile,v 1.13 2007/03/26 04:22:11 fcusack Exp $
 #
 #############################################################################
-VERSION=1.4.0
+VERSION=2.0.0
 
 ######################################################################
 #
@@ -71,11 +71,15 @@ pam_radius_auth.so: src/pam_radius_auth.o src/md5.o
 #
 #  Check a distribution out of the source tree, and make a tar file.
 #
-.PHONY: dist
-dist:
+.PHONY: pam_radius-$(VERSION).tar.gz
+pam_radius-$(VERSION).tar.gz:
 	git archive --format=tar --prefix=pam_radius-$(VERSION)/ master | gzip > pam_radius-$(VERSION).tar.gz
-	gpg --default-key aland@freeradius.org -b pam_radius-$(VERSION).tar.gz
 
+%.sig: %
+	gpg --default-key packages@freeradius.org -b $<
+
+
+dist: pam_radius-$(VERSION).tar.gz pam_radius-$(VERSION).tar.gz.sig
 
 ######################################################################
 #
