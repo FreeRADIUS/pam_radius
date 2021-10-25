@@ -5,6 +5,11 @@
 # $Id: Makefile,v 1.13 2007/03/26 04:22:11 fcusack Exp $
 #
 #############################################################################
+$(if $(wildcard src/config.h),,$(error You must run './configure [options]' before doing 'make'))
+$(if $(wildcard Make.inc),,$(error Missing 'Make.inc' Run './configure [options]' and retry))
+
+include Make.inc
+
 VERSION = $(shell cat VERSION)
 
 ######################################################################
@@ -14,7 +19,7 @@ VERSION = $(shell cat VERSION)
 #
 #  If you're not using GCC, then you'll have to change the CFLAGS.
 #
-CFLAGS += -Wall -fPIC
+CFLAGS += -Wall
 
 #
 # On Irix, use this with MIPSPRo C Compiler, and don't forget to export CC=cc
@@ -26,8 +31,6 @@ CFLAGS += -Wall -fPIC
 #LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
 LDFLAGS += -shared
 
-$(if $(wildcard src/config.h),,$(error You must run './configure [options]' before doing 'make'))
-
 ######################################################################
 #
 #  The default rule to build everything.
@@ -38,7 +41,7 @@ all: pam_radius_auth.so
 #
 #  Build the object file from the C source.
 #
-export CFLAGS
+export CFLAGS LDFLAGS
 
 src/pam_radius_auth.o: src/pam_radius_auth.c src/pam_radius_auth.h
 	@$(MAKE) -C src $(notdir $@)
@@ -50,7 +53,6 @@ src/md5.o: src/md5.c src/md5.h
 # This is what should work on Irix:
 #pam_radius_auth.so: pam_radius_auth.o md5.o
 #	ld -shared pam_radius_auth.o md5.o -L/usr/freeware/lib32 -lpam -lc -o pam_radius_auth.so
-
 
 ######################################################################
 #
@@ -75,7 +77,6 @@ pam_radius_auth.so: src/pam_radius_auth.o src/md5.o
 dist:
 	git archive --format=tar --prefix=pam_radius-$(VERSION)/ master | gzip > pam_radius-$(VERSION).tar.gz
 	gpg --default-key aland@freeradius.org -b pam_radius-$(VERSION).tar.gz
-
 
 ######################################################################
 #
