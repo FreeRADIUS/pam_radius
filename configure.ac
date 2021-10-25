@@ -23,7 +23,7 @@ dnl #############################################################
 AC_PREREQ([2.59])
 export CFLAGS LIBS LDFLAGS CPPFLAGS
 
-AC_INIT([pam_radius],1.5,[http://bugs.freeradius.org],,[http://www.freeradius.org])
+AC_INIT([pam_radius],$Id$,[https://github.com/FreeRADIUS/pam_radius/issues],,[http://www.freeradius.org])
 AC_CONFIG_SRCDIR([src/pam_radius_auth.c])
 AC_CONFIG_HEADER([src/config.h])
 m4_include([m4/ax_cc.m4])
