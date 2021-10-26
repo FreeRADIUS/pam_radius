@@ -85,3 +85,12 @@ dist:
 .PHONY: clean
 clean:
 	@rm -f *~ *.so *.o src/*.o src/*~
+
+######################################################################
+#
+#  Install it
+#
+.PHONY: install
+install: all
+	install -m 0644 pam_radius_auth.so /lib/security
+	install -m 0644 pam_radius_auth.conf /etc/pam_radius_auth.conf
