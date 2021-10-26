@@ -53,7 +53,6 @@ static CONST char *pam_module_version = PAM_RADIUS_VERSION_STRING
  *
  * @param[in] err		syslog priority id
  * @param[in] format	Variadic arguments
- * @return nothing
  */
 static void _pam_log(int err, CONST char *format, ...)
 {
@@ -118,7 +117,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			if (conf->client_id) {
 				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
 			} else {
-				conf->client_id = (char *) *argv+10; /* point to the client-id */
+				conf->client_id = (const char *) *argv+10; /* point to the client-id */
 			}
 		} else if (!strcmp(*argv, "accounting_bug")) {
 			conf->accounting_bug = TRUE;
@@ -131,17 +130,17 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			conf->debug = TRUE;
 
 		} else if (!strncmp(*argv, "prompt=", 7)) {
-			if (!strncmp(conf->prompt, (char*)*argv+7, MAXPROMPT)) {
+			if (!strncmp(conf->prompt, (const char*)*argv+7, MAXPROMPT)) {
 				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
 			} else {
 				/* truncate excessive prompts to (MAXPROMPT - 3) length */
-				if (strlen((char*)*argv+7) >= (MAXPROMPT - 3)) {
+				if (strlen((const char*)*argv+7) >= (MAXPROMPT - 3)) {
 					*((char*)*argv+7 + (MAXPROMPT - 3)) = 0;
 				}
 
 				/* set the new prompt */
 				memset(conf->prompt, 0, sizeof(conf->prompt));
-				snprintf(conf->prompt, MAXPROMPT, "%s: ", (char*)*argv+7);
+				snprintf(conf->prompt, MAXPROMPT, "%s: ", (const char*)*argv+7);
 			}
 
 		} else if (!strcmp(*argv, "force_prompt")) {
@@ -192,10 +191,8 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
  * @param[in] pamh			PAM context specified by the pamh argument
  * @param[in] data			Associate some data with the handle pamh
  * @param[in] error_status	used to indicate to the module the sort of action it
- * @return
- *	- void
  */
-static void _int_free(pam_handle_t *pamh, void *data, int error_status)
+static void _int_free(UNUSED pam_handle_t *pamh, UNUSED void *data, UNUSED int error_status)
 {
 	free(data);
 }
@@ -205,8 +202,6 @@ static void _int_free(pam_handle_t *pamh, void *data, int error_status)
  * @param[in] errnum		syslog priority id
  * @param[in] buf	        Variadic arguments
  * @param[in] buflen	    Variadic arguments
- * @return
- *	- void
  */
 static void get_error_string(int errnum, char *buf, size_t buflen)
 {
@@ -237,7 +232,7 @@ static void get_error_string(int errnum, char *buf, size_t buflen)
  *	- returns zero on success or one of the error codes listed in gai_strerror(3)
  *    if an error occurs
  */
-static int get_ipaddr(char *host, struct sockaddr *addr, char *port)
+static int get_ipaddr(CONST char *host, struct sockaddr *addr, CONST char *port)
 {
 	struct addrinfo hints;
 	struct addrinfo *results;
@@ -299,7 +294,8 @@ static int host2server(int debug, radius_server_t *server)
 			}
 		}
 	} else {
-		port = (server->accounting) ? "radacct" : "radius";
+		strncpy(tmp, (server->accounting) ? "radacct" : "radius", sizeof(tmp));
+		port = tmp;
 	}
 
 	server->ip = (struct sockaddr *)&server->ip_storage;
@@ -394,7 +390,7 @@ static void get_accounting_vector(AUTH_HDR *request, radius_server_t *server)
 /**
  * Verify the response from the server
  */
-static int verify_packet(char *secret, AUTH_HDR *response, AUTH_HDR *request)
+static int verify_packet(CONST char *secret, AUTH_HDR *response, AUTH_HDR *request)
 {
 	MD5_CTX my_md5;
 	uint8_t calculated[AUTH_VECTOR_LEN];
@@ -420,7 +416,7 @@ static int verify_packet(char *secret, AUTH_HDR *response, AUTH_HDR *request)
 	 * Odd, the code is 99% there, but the old password is never copied
 	 * to the secret!
 	 */
-	if (*secret) MD5Update(&my_md5, (uint8_t *) secret, strlen(secret));
+	if (*secret) MD5Update(&my_md5, (CONST uint8_t *) secret, strlen(secret));
 
 	MD5Final(calculated, &my_md5);			/* set the final vector */
 
@@ -879,7 +875,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 		get_random_vector(request->vector);
 	}
 
-	add_attribute(request, PW_USER_NAME, (uint8_t *) user, strlen(user));
+	add_attribute(request, PW_USER_NAME, (CONST uint8_t *) user, strlen(user));
 
 	/*
 	 *	Add a password, if given.
@@ -899,7 +895,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 
 	/* There's always a NAS identifier */
 	if (conf->client_id && *conf->client_id) {
-		add_attribute(request, PW_NAS_IDENTIFIER, (uint8_t *) conf->client_id, strlen(conf->client_id));
+		add_attribute(request, PW_NAS_IDENTIFIER, (CONST uint8_t *) conf->client_id, strlen(conf->client_id));
 	}
 
 	/*
@@ -1071,7 +1067,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 				/* there's data, see if it's valid */
 				} else {
-					char *p = server->secret;
+					CONST char *p = server->secret;
 
 					if ((ntohs(response->length) != total_length) ||
 					    (ntohs(response->length) > BUFFER_SIZE)) {
@@ -1191,7 +1187,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { return retval; }
 
-static int rad_converse(pam_handle_t *pamh, int msg_style, char *message, char **password)
+static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, char **password)
 {
 	CONST struct pam_conv *conv;
 	struct pam_message resp_msg;
@@ -1239,10 +1235,11 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, char *message, char *
 		return retval; \
 	}
 
-PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, CONST char **argv)
+PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv)
 {
 	CONST char *user;
 	CONST char *userinfo;
+	CONST char *old_password = NULL;
 	char *password = NULL;
 	CONST char *rhost;
 	char *resp2challenge = NULL;
@@ -1322,12 +1319,12 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, CONS
 	/* grab the password (if any) from the previous authentication layer */
 	if (!config.force_prompt) {
 		DPRINT(LOG_DEBUG, "ignore last_pass, force_prompt set");
-		retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &password);
+		retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &old_password);
 		PAM_FAIL_CHECK;
 	}
 
-	if (password) {
-		password = strdup(password);
+	if (old_password) {
+		password = strdup(old_password);
 		DPRINT(LOG_DEBUG, "Got password %s", password);
 	}
 
@@ -1362,7 +1359,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, CONS
 	retval = pam_get_item(pamh, PAM_RHOST, (CONST void **) &rhost);
 	PAM_FAIL_CHECK;
 	if (rhost) {
-		add_attribute(request, PW_CALLING_STATION_ID, (uint8_t *) rhost, strlen(rhost));
+		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
 	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d", request->code);
@@ -1429,7 +1426,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, CONS
 		request->id++;		/* one up from the request */
 
 		if (rhost) {
-			add_attribute(request, PW_CALLING_STATION_ID, (uint8_t *) rhost, strlen(rhost));
+			add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 		}
 
 		/* copy the state over from the servers response */
@@ -1549,20 +1546,20 @@ do_next:
  * (Always returning PAM_SUCCESS breaks other authentication modules;
  * always returning PAM_IGNORE breaks PAM when we're the only module.)
  */
-PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
+PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, UNUSED int flags, UNUSED int argc, UNUSED CONST char **argv)
 {
-	int retval, *pret;
+	int retval = PAM_SUCCESS;
+	const int *pret = &retval;
 
-	retval = PAM_SUCCESS;
-	pret = &retval;
 	pam_get_data(pamh, "rad_setcred_return", (CONST void **) &pret);
+
 	return *pret;
 }
 
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { return PAM_SESSION_ERR; }
 
-static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST char **argv, int status)
+static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv, int status)
 {
 	CONST char *user;
 	CONST char *rhost;
@@ -1622,8 +1619,9 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 		time(session_time);
 		pam_set_data(pamh, "rad_session_time", (void *) session_time, _int_free);
 	} else {
-		time_t *session_time;
-		retval = pam_get_data(pamh, "rad_session_time", (CONST void **) &session_time);
+		const time_t *session_time = NULL;
+
+		retval = pam_get_data(pamh, "rad_session_time", (CONST void **)&session_time);
 		PAM_FAIL_CHECK;
 
 		add_int_attribute(request, PW_ACCT_SESSION_TIME, time(NULL) - *session_time);
@@ -1638,7 +1636,7 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 	retval = pam_get_item(pamh, PAM_RHOST, (CONST void **) &rhost);
 	PAM_FAIL_CHECK;
 	if (rhost) {
-		add_attribute(request, PW_CALLING_STATION_ID, (uint8_t *) rhost, strlen(rhost));
+		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
 	retval = talk_radius(&config, request, response, NULL, NULL, 1);
@@ -1679,6 +1677,7 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, CON
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST char **argv)
 {
 	CONST char *user;
+	const char *old_password = NULL;
 	char *password = NULL;
 	char *new_password = NULL;
 	char *check_password = NULL;
@@ -1724,14 +1723,16 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {goto error; }
 
 	/* grab the old password (if any) from the previous password layer */
-	retval = pam_get_item(pamh, PAM_OLDAUTHTOK, (CONST void **) &password);
+	old_password = NULL;
+	retval = pam_get_item(pamh, PAM_OLDAUTHTOK, (CONST void **) &old_password);
 	PAM_FAIL_CHECK;
-	if (password) password = strdup(password);
+	if (old_password) password = strdup(old_password);
 
 	/* grab the new password (if any) from the previous password layer */
-	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &new_password);
+	old_password = NULL;
+	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &old_password);
 	PAM_FAIL_CHECK;
-	if (new_password) new_password = strdup(new_password);
+	if (old_password) new_password = strdup(old_password);
 
 	/* preliminary password change checks. */
 	if (flags & PAM_PRELIM_CHECK) {
@@ -1898,7 +1899,7 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
  *	Do nothing for account management. This is apparently needed by
  *	some programs.
  */
-PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, CONST char **argv)
+PAM_EXTERN int pam_sm_acct_mgmt(UNUSED pam_handle_t *pamh, UNUSED int flags, UNUSED int argc, UNUSED CONST char **argv)
 {
 	return PAM_SUCCESS;
 }
