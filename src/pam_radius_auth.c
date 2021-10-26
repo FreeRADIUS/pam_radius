@@ -161,6 +161,29 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		}
 	}
 
+	if (conf->debug) {
+#define print_bool(cond) (cond) ? "yes" : "no"
+
+		_pam_log(LOG_DEBUG, "DEBUG: conf_file='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
+							"localifdown=%s client_id='%s' accounting_bug=%s ruser=%s prompt='%s' force_prompt=%s "\
+							"prompt_attribute=%s max_challenge=%d privilege_level=%s",
+				conf->conf_file,
+				print_bool(ctrl & PAM_USE_FIRST_PASS),
+				print_bool(ctrl & PAM_TRY_FIRST_PASS),
+				print_bool(ctrl & PAM_SKIP_PASSWD),
+				conf->retries,
+				print_bool(conf->localifdown),
+				conf->client_id ? conf->client_id : "",
+				print_bool(conf->accounting_bug),
+				print_bool(ctrl & PAM_RUSER_ARG),
+				conf->prompt,
+				print_bool(conf->force_prompt),
+				print_bool(conf->prompt_attribute),
+				conf->max_challenge,
+				print_bool(conf->privilege_level)
+		);
+	}
+
 	return ctrl;
 }
 
