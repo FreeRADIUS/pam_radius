@@ -195,7 +195,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
  * @return
  *	- void
  */
-void _int_free(pam_handle_t *pamh, void *data, int error_status)
+static void _int_free(pam_handle_t *pamh, void *data, int error_status)
 {
 	free(data);
 }
