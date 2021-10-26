@@ -800,6 +800,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 		if (valid_src_ip == 0 || vrf[0]) {
 			if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
+
 				goto error;
 			}
 		}
@@ -827,6 +828,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 	return PAM_SUCCESS;
 
 error:
+	fclose(fp);
+
 	if (conf->sockfd != -1)	close(conf->sockfd);
 	
 	if (conf->sockfd6 != -1) close(conf->sockfd6);
