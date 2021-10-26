@@ -38,6 +38,17 @@
 /* internal data */
 static CONST char *pam_module_name = "pam_radius_auth";
 
+/* module version */
+static CONST char *pam_module_version = PAM_RADIUS_VERSION_STRING
+#ifndef NDEBUG
+	" DEVELOPER BUILD - "
+#endif
+#ifdef PAM_RADIUS_VERSION_COMMIT
+	" (git #" PAM_RADIUS_VERSION_COMMIT ")"
+#endif
+	", built on " __DATE__ " at " __TIME__ ""
+;
+
 /** log helper
  *
  * @param[in] err		syslog priority id
@@ -1219,6 +1230,11 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, CONS
 	AUTH_HDR *request = (AUTH_HDR *) send_buffer;
 	AUTH_HDR *response = (AUTH_HDR *) recv_buffer;
 	radius_conf_t config;
+
+	/**
+	 *	It must be always printed out helping to know which version is in use.
+	 */
+	_pam_log(LOG_DEBUG, "%s", pam_module_version);
 
 	ctrl = _pam_parse(argc, argv, &config);
 	debug = config.debug;
