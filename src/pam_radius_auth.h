@@ -24,6 +24,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <stdint.h>
 
 #if defined(HAVE_LINUX_IF_H)
 #include <linux/if.h>
