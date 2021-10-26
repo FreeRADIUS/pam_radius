@@ -237,3 +237,12 @@
 
 /* uint8_t should be the canonical 'octet' for network traffic */
 #undef uint8_t
+
+/* pam radius version */
+#undef PAM_RADIUS_VERSION_STRING
+
+/* pam radius commit hash */
+#undef PAM_RADIUS_VERSION_COMMIT
+
+/* pam radius release id */
+#undef PAM_RADIUS_VERSION_RELEASE

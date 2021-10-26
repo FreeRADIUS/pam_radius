@@ -28,6 +28,11 @@ AC_CONFIG_SRCDIR([src/pam_radius_auth.c])
 AC_CONFIG_HEADER([src/config.h])
 m4_include([m4/ax_cc.m4])
 
+dnl #
+dnl #  See if we have Git.
+dnl #
+AC_CHECK_PROG(GIT, git, yes, no)
+
 dnl #############################################################
 dnl #
 dnl #  Custom hackery to discover version at configure time
@@ -119,6 +124,36 @@ AC_ARG_ENABLE(developer,
     developer=yes
   esac ]
 )
+
+dnl #
+dnl #  Turn on the developer flag when taken from a git checkout (not a release)
+dnl #
+if test "x$GIT" = "xyes" && git status 2>&1 > /dev/null; then
+  if test "x$PAM_RADIUS_VERSION_RELEASE" = "x"; then
+    AC_MSG_CHECKING([build release])
+    PAM_RADIUS_VERSION_RELEASE=`git describe | sed -e 's/^.*-\([[0-9]]*\)-g[[0-9a-f]]*/\1/'`
+    AC_MSG_RESULT($PAM_RADIUS_VERSION_RELEASE)
+  fi
+
+  if test "x$PAM_RADIUS_VERSION_COMMIT" = "x"; then
+    AC_MSG_CHECKING([build commit])
+    PAM_RADIUS_VERSION_COMMIT=`git rev-parse --short=8 HEAD`
+    AC_MSG_RESULT($PAM_RADIUS_VERSION_COMMIT)
+  fi
+
+  if test "x$developer" != "xno"; then
+    AC_MSG_NOTICE([in git repository, enabling developer build implicitly, disable with --disable-developer])
+    developer="yes"
+  fi
+fi
+
+if test "x$PAM_RADIUS_VERSION_RELEASE" != "x"; then
+  AC_DEFINE_UNQUOTED([PAM_RADIUS_VERSION_RELEASE],["${PAM_RADIUS_VERSION_RELEASE}"],[Version release number at time of configuring])
+fi
+
+if test "x$PAM_RADIUS_VERSION_COMMIT" != "x"; then
+  AC_DEFINE_UNQUOTED([PAM_RADIUS_VERSION_COMMIT],["${PAM_RADIUS_VERSION_COMMIT}"],[Commit HEAD at time of configuring])
+fi
 
 dnl #
 dnl #  Enable the -fsanitize=address and link in the address sanitizer
