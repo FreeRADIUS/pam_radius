@@ -109,7 +109,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			ctrl |= PAM_SKIP_PASSWD;
 
 		} else if (!strncmp(*argv, "retry=", 6)) {
-			conf->retries = atoi(*argv+6);
+			conf->retries = strtoul(*argv+6, 0, 10);
 
 		} else if (!strcmp(*argv, "localifdown")) {
 			conf->localifdown = 1;
@@ -151,7 +151,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			conf->prompt_attribute = TRUE;
 
 		} else if (!strncmp(*argv, "max_challenge=", 14)) {
-			conf->max_challenge = atoi(*argv+14);
+			conf->max_challenge = strtoul(*argv+14, 0, 10);
 
 		} else if (!strcmp(*argv, "privilege_level")) {
 			conf->privilege_level = TRUE;
