@@ -92,5 +92,6 @@ clean:
 #
 .PHONY: install
 install: all
+	@mkdir -p /lib/security
 	install -m 0644 pam_radius_auth.so /lib/security
 	install -m 0644 pam_radius_auth.conf /etc/pam_radius_auth.conf
