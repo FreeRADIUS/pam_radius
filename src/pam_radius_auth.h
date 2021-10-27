@@ -24,6 +24,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <stdint.h>
 
 #if defined(HAVE_LINUX_IF_H)
 #include <linux/if.h>
@@ -122,6 +123,30 @@
 #define TRUE !FALSE
 #endif
 
+/** Should be placed before the function return type
+ *
+ */
+#define NEVER_RETURNS		_Noreturn
+#define UNUSED			CC_HINT(unused)
+
+/*
+ *	Only use GCC __attribute__ if were building with a GCClike
+ *	compiler.
+ */
+#ifdef __GNUC__
+#  define CC_HINT(...)	__attribute__ ((__VA_ARGS__))
+#  define likely(_x)	__builtin_expect((_x), 1)
+#  define unlikely(_x)	__builtin_expect((_x), 0)
+#else
+#  define CC_HINT(...)
+#  define likely(_x)	_x
+#  define unlikely(_x)	_x
+#endif
+
+/** Should be placed before the function return type
+ *
+ */
+#define UNUSED			CC_HINT(unused)
 
 /*************************************************************************
  * Additional RADIUS definitions
@@ -151,7 +176,7 @@ typedef struct radius_conf_t {
 	radius_server_t *server;
 	int retries;
 	int localifdown;
-	char *client_id;
+	CONST char *client_id;
 	int accounting_bug;
 	int force_prompt;
 	int max_challenge;
