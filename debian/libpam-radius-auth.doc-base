@@ -1,0 +1,12 @@
+Document: libpam-radius-auth
+Title: PAM RADIUS authentication module documentation
+Author: FreeRadius developers
+Abstract: The documentation for the PAM RADIUS authentication module
+ This documentation is about the PAM to RADIUS authentication module. This
+ PAM allows any PAM-capable machine to become a RADIUS client for
+ authentication and accounting requests.
+Section: System/Administration
+
+Format: HTML
+Index: /usr/share/doc/libpam-radius-auth/index.html
+Files: /usr/share/doc/libpam-radius-auth/*

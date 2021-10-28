@@ -1,6 +1,3 @@
-$(if $(wildcard ../Make.inc),,$(error Missing '../Make.inc' Run './configure [options]' and retry))
-include ../Make.inc
-
 all: pam_radius_auth.o md5.o
 
 pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h config.h

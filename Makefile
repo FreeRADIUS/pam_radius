@@ -5,10 +5,20 @@
 # $Id: Makefile,v 1.13 2007/03/26 04:22:11 fcusack Exp $
 #
 #############################################################################
+
+#
+#  We require Make.inc, UNLESS the target is "make deb"
+#
+#  Since "make deb" re-runs configure... there's no point in
+#  requiring the developer to run configure *before* making
+#  the debian packages.
+#
+ifneq "$(MAKECMDGOALS)" "deb"
 $(if $(wildcard src/config.h),,$(error You must run './configure [options]' before doing 'make'))
 $(if $(wildcard Make.inc),,$(error Missing 'Make.inc' Run './configure [options]' and retry))
 
 include Make.inc
+endif
 
 VERSION = $(shell cat VERSION)
 
@@ -95,3 +105,23 @@ install: all
 	@mkdir -p /lib/security
 	install -m 0644 pam_radius_auth.so /lib/security
 	install -m 0644 pam_radius_auth.conf /etc/pam_radius_auth.conf
+
+######################################################################
+#
+#	Build a debian package
+#
+debian/changelog: debian/changelog.in
+	sed "s/@VERSION@/$(VERSION)/g" < $^ > $@
+
+.PHONY: deb
+deb: debian/changelog
+	@if ! which fakeroot; then \
+		if ! which apt-get; then \
+		  echo "'make deb' only works on debian systems" ; \
+		  exit 1; \
+		fi ; \
+		echo "Please run 'apt-get install build-essentials' "; \
+		exit 1; \
+	fi
+	fakeroot debian/rules debian/control
+	fakeroot dpkg-buildpackage -b -uc
