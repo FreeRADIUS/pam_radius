@@ -1,7 +1,6 @@
-pam_radius
-----------
+# pam_radius
 
-|BuildStatus|_ 
+![CI build status](https://github.com/FreeRADIUS/pam_radius/actions/workflows/ci.yml/badge.svg)
 
 This is the PAM to RADIUS authentication module.  It allows any
 Linux, OSX or Solaris machine to become a RADIUS client for 
@@ -47,13 +46,9 @@ have to edit the Makefile to remove the GNU make directives.
 
 Alan DeKok <aland@freeradius.org>
 
-Debugging
----------
+## Debugging
 
 When building under clang and some later versions of GCC with `--enable-developer`, you can add the following flags:
 
 - `--enable-address-sanitizer`, enables address sansitizer (detects use after free issues, and out of bounds accesses).
 - `--enable-leak-sanitizer`, enables leak sanitizer (detects memory leaks).
-
-.. |BuildStatus| image:: https://travis-ci.org/FreeRADIUS/pam_radius.png?branch=master
-.. _BuildStatus: https://travis-ci.org/FreeRADIUS/pam_radius
