@@ -7,17 +7,19 @@
 #############################################################################
 
 #
-#  We require Make.inc, UNLESS the target is "make deb"
+#  We require Make.inc, UNLESS the target is "make deb" or "make rpm"
 #
 #  Since "make deb" re-runs configure... there's no point in
 #  requiring the developer to run configure *before* making
 #  the debian packages.
 #
 ifneq "$(MAKECMDGOALS)" "deb"
+ifneq "$(MAKECMDGOALS)" "rpm"
 $(if $(wildcard src/config.h),,$(error You must run './configure [options]' before doing 'make'))
 $(if $(wildcard Make.inc),,$(error Missing 'Make.inc' Run './configure [options]' and retry))
 
 include Make.inc
+endif
 endif
 
 VERSION = $(shell cat VERSION)
@@ -136,3 +138,19 @@ deb: debian/changelog
 	fi
 	fakeroot debian/rules debian/control
 	fakeroot dpkg-buildpackage -b -uc
+
+#
+#  Build an RPM package
+#
+.PHONY: rpm
+rpmbuild/SOURCES/pam_radius-$(VERSION).tar.bz2: pam_radius-$(VERSION).tar.bz2
+	@mkdir -p $(addprefix rpmbuild/,SOURCES SPECS BUILD RPMS SRPMS BUILDROOT)
+	@for file in `awk '/^Source...:/ {print $$2}' redhat/pam_radius_auth.spec` ; do cp redhat/$$file rpmbuild/SOURCES/$$file ; done
+	@cp $< $@
+
+rpm: rpmbuild/SOURCES/pam_radius-$(VERSION).tar.bz2
+	@if ! yum-builddep -q -C --assumeno --define "_version $(VERSION)" redhat/pam_radius_auth.spec 1> /dev/null 2>&1; then \
+		echo "ERROR: Required depdendencies not found, install them with: yum-builddep redhat/pam_radius_auth.spec"; \
+		exit 1; \
+	fi
+	@QA_RPATHS=0x0003 rpmbuild --define "_version $(VERSION)" --define "_topdir `pwd`/rpmbuild" -bb redhat/pam_radius_auth.spec
