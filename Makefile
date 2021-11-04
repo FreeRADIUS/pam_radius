@@ -83,10 +83,21 @@ pam_radius_auth.so: src/pam_radius_auth.o src/md5.o
 #
 #  Check a distribution out of the source tree, and make a tar file.
 #
+BRANCH = $(shell git rev-parse --abbrev-ref HEAD)
+
+pam_radius-$(VERSION).tar.gz: .git/HEAD
+	git archive --format=tar --prefix=pam_radius-$(VERSION)/ $(BRANCH) | gzip > $@
+
+pam_radius-$(VERSION).tar.bz2: .git/HEAD
+	git archive --format=tar --prefix=pam_radius-$(VERSION)/ $(BRANCH) | bzip2 > $@
+
+%.sig: %
+	gpg --default-key packages@freeradius.org -b $<
+
 .PHONY: dist
-dist:
-	git archive --format=tar --prefix=pam_radius-$(VERSION)/ master | gzip > pam_radius-$(VERSION).tar.gz
-	gpg --default-key aland@freeradius.org -b pam_radius-$(VERSION).tar.gz
+dist: pam_radius-$(VERSION).tar.gz pam_radius-$(VERSION).tar.bz2
+
+dist-sign: pam_radius-$(VERSION).tar.gz.sig pam_radius-$(VERSION).tar.bz2.sig
 
 ######################################################################
 #
