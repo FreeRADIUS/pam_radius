@@ -54,7 +54,7 @@ skip_passwd    - Do not prompt for a password, even if there was none
                  Otherwise, no password is sent to the next module.
 
 conf=foo       - set the configuration filename to 'foo'.
-                 Default is /etc/raddb/server
+                 Default is /etc/pam_radius_auth.conf
 
 client_id=bar  - send a NAS-Identifier RADIUS attribute with string
                  'bar'.  If the client_id is not specified, the PAM_SERVICE

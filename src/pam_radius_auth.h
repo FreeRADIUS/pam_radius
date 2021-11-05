@@ -114,7 +114,7 @@
                          * compiled in. This is the default.
                          */
 #ifndef CONF_FILE       /* the configuration file holding the server secret */
-#define CONF_FILE       "/etc/raddb/server"
+#define CONF_FILE       "/etc/pam_radius_auth.conf"
 #endif /* CONF_FILE */
 
 #ifndef FALSE
