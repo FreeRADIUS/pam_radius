@@ -23,7 +23,7 @@ jobs:
     #  If branch protection is in place with status checks enabled, ensure
     #  names are updated if new matrix entries are added or the name format
     #  changes.
-    name: "DEB Build"
+    name: "DEB Build (ubuntu-20.04)"
 
     steps:
 
