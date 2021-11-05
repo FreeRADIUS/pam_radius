@@ -1,0 +1,5 @@
+libpam-radius-auth (@VERSION@) unstable; urgency=medium
+
+  * Initial Debian version.
+
+ -- Network RADIUS SARL <info@networkradius.com>  Tue, 2 Nov 2021 11:37:12 -0300

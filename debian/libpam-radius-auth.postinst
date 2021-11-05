@@ -1,0 +1,10 @@
+#!/bin/sh
+
+set -e
+
+pam-auth-update --package radius
+#pam-auth-update --force
+
+#DEBHELPER#
+
+exit 0

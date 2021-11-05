@@ -1,0 +1,3 @@
+debian/pam-configs/radius usr/share/pam-configs
+pam_radius_auth.conf      etc
+pam_radius_auth.so        lib/@DEB_HOST_MULTIARCH@/security

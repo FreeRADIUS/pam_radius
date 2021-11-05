@@ -1,0 +1,11 @@
+Name: Radius Authentication
+Default: no
+Priority: 129
+Auth-Type: Primary
+Auth-Initial:
+        [success=end default=ignore]    pam_radius_auth.so
+Auth:
+        [success=end default=ignore]    pam_radius_auth.so use_first_pass
+Account-Type: Additional
+Account:
+        [success=ok new_authtok_reqd=done ignore=ignore user_unknown=ignore authinfo_unavail=ignore default=bad] pam_radius_auth.so
