@@ -7,6 +7,8 @@ if [ -e "/etc/freeradius/3.0/mods-config/files/authorize" ]; then
 	raddb="/etc/freeradius/3.0"
 elif [ -e "/etc/freeradius/mods-config/files/authorize" ]; then
 	raddb="/etc/freeradius"
+elif [ -e "/etc/raddb/mods-config/files/authorize" ]; then
+	raddb="/etc/raddb"
 else
 	echo "$0: ERROR: We did not find the /etc/freeradius/mods-config/files/authorize or /etc/freeradius/3.0/mods-config/files/authorize"
 	exit 123
