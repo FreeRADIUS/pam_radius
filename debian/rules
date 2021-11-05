@@ -10,9 +10,7 @@ include /usr/share/dpkg/default.mk
 
 .NOTPARALLEL:
 
-RADIUS_CONF_FILE=/etc/pam_radius_auth.conf
 export DEB_BUILD_MAINT_OPTIONS=hardening=+all
-export DEB_CPPFLAGS_MAINT_APPEND=-DCONF_FILE="\\\"$(RADIUS_CONF_FILE)\\\""
 
 # These are used for cross-compiling and for saving the configure script
 # from having to guess our platform (since we know it already)
