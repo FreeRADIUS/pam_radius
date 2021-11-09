@@ -520,7 +520,7 @@ static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {
  * us to simply call add_password to update the password for different
  * servers.
  */
-static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, char *secret)
+static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, CONST char *secret)
 {
 	MD5_CTX md5_secret, my_md5;
 	uint8_t misc[AUTH_VECTOR_LEN];
@@ -556,7 +556,7 @@ static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, 
 	/* encrypt the password */
 	/* password : e[0] = p[0] ^ MD5(secret + vector) */
 	MD5Init(&md5_secret);
-	MD5Update(&md5_secret, (uint8_t *) secret, strlen(secret));
+	MD5Update(&md5_secret, (CONST uint8_t *) secret, strlen(secret));
 	my_md5 = md5_secret;				/* so we won't re-do the hash later */
 	MD5Update(&my_md5, vector, AUTH_VECTOR_LEN);
 	MD5Final(misc, &my_md5);			/* set the final vector */
