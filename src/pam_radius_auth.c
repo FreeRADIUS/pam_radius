@@ -49,6 +49,26 @@ static CONST char *pam_module_version = PAM_RADIUS_VERSION_STRING
 	", built on " __DATE__ " at " __TIME__ ""
 ;
 
+/**
+ * Convert the packet code to string.
+ */
+static const char *get_packet_name(int code) {
+	switch(code) {
+		case PW_AUTHENTICATION_REQUEST: return "Access-Request";
+		case PW_AUTHENTICATION_ACK: return "Access-Accept";
+		case PW_AUTHENTICATION_REJECT: return "Access-Reject";
+		case PW_ACCOUNTING_REQUEST: return "Accounting-Request";
+		case PW_ACCOUNTING_RESPONSE: return "Accounting-Response";
+		case PW_ACCOUNTING_STATUS: return "Accounting-Status";
+		case PW_PASSWORD_REQUEST: return "Password-Request";
+		case PW_PASSWORD_ACK: return "Password-Accept";
+		case PW_PASSWORD_REJECT: return "Password-Reject";
+		case PW_ACCOUNTING_MESSAGE: return "Accounting-Message";
+		case PW_ACCESS_CHALLENGE: return "Access-Challenge";
+		default: return "Unknown";
+	}
+}
+
 /** log helper
  *
  * @param[in] err		syslog priority id
@@ -1362,12 +1382,12 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
-	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d", request->code);
+	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d (%s)", request->code, get_packet_name(request->code));
 
 	retval = talk_radius(&config, request, response, password, NULL, config.retries + 1);
 	PAM_FAIL_CHECK;
 
-	DPRINT(LOG_DEBUG, "Got RADIUS response code %d", response->code);
+	DPRINT(LOG_DEBUG, "Got RADIUS response code %d (%s)", response->code, get_packet_name(response->code));
 
 	/*
 	 *	If we get an authentication failure, and we sent a NULL password,
