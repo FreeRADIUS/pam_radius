@@ -1258,11 +1258,11 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, 
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv)
 {
-	CONST char *user;
-	CONST char *userinfo;
+	CONST char *user = NULL;
+	CONST char *userinfo = NULL;
 	CONST char *old_password = NULL;
 	char *password = NULL;
-	CONST char *rhost;
+	CONST char *rhost = NULL;
 	char *resp2challenge = NULL;
 	int ctrl;
 	int debug;
