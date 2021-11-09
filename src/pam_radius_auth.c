@@ -765,8 +765,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		/*
 		 *	Fill in the relevant fields.
 		 */
-		server = malloc(sizeof(radius_server_t));
-		memset(server, 0, sizeof(*server));
+		server = calloc(1, sizeof(radius_server_t));
 		*last = server;
 		server->next = NULL;
 		last = &server->next;
