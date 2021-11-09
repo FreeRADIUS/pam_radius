@@ -472,7 +472,7 @@ static void add_int_attribute(AUTH_HDR *request, uint8_t type, int data)
 	add_attribute(request, type, (uint8_t *) &value, sizeof(int));
 }
 
-static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
+static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {
 	struct addrinfo hints;
 	struct addrinfo *ai_start;
 	struct addrinfo *ai;
