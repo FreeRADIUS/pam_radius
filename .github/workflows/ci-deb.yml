@@ -14,16 +14,28 @@ env:
   GH_ACTIONS: 1
 
 jobs:
+  pre-ci:
+    runs-on: ubuntu-latest
+    # Map a step output to a job output
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@master
+
   deb-build:
+    #  If branch protection is in place with status checks enabled, ensure
+    #  names are updated if new matrix entries are added or the name format
+    #  changes.
+    name: "DEB Build (ubuntu-20.04)"
+
+    needs: pre-ci
+    if: ${{ needs.pre-ci.outputs.should_skip != 'true' }}
+
     runs-on: "ubuntu-20.04"
 
     strategy:
       fail-fast: false
-
-    #  If branch protection is in place with status checks enabled, ensure
-    #  names are updated if new matrix entries are added or the name format
-    #  changes.
-    name: "DEB Build"
 
     steps:
 
