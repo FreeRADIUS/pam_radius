@@ -144,7 +144,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			}
 
 		} else if (!strcmp(*argv, "force_prompt")) {
-			conf->force_prompt= TRUE;
+			conf->force_prompt = TRUE;
 
 		} else if (!strcmp(*argv, "prompt_attribute")) {
 			conf->prompt_attribute = TRUE;
@@ -162,6 +162,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	if (conf->debug) {
 #define print_bool(cond) (cond) ? "yes" : "no"
+#define print_string(cond) (cond) ? cond : ""
 
 		_pam_log(LOG_DEBUG, "DEBUG: conf_file='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' accounting_bug=%s ruser=%s prompt='%s' force_prompt=%s "\
@@ -172,7 +173,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				print_bool(ctrl & PAM_SKIP_PASSWD),
 				conf->retries,
 				print_bool(conf->localifdown),
-				conf->client_id ? conf->client_id : "",
+				print_string(conf->client_id),
 				print_bool(conf->accounting_bug),
 				print_bool(ctrl & PAM_RUSER_ARG),
 				conf->prompt,
@@ -1309,7 +1310,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 	/* now we've got a socket open, so we've got to clean it up on error */
 #undef PAM_FAIL_CHECK
-#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {goto do_next; }
+#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { goto do_next; }
 
 	/* build and initialize the RADIUS packet */
 	request->code = PW_AUTHENTICATION_REQUEST;
@@ -1524,7 +1525,7 @@ do_next:
 		pam_set_item(pamh, PAM_AUTHTOK, password);
 	}
 
-	DPRINT(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
+	DPRINT(LOG_DEBUG, "authentication %s", retval == PAM_SUCCESS ? "succeeded":"failed");
 
 	close(config.sockfd);
 	if (config.sockfd6 >= 0) close(config.sockfd6);
