@@ -49,6 +49,26 @@ static CONST char *pam_module_version = PAM_RADIUS_VERSION_STRING
 	", built on " __DATE__ " at " __TIME__ ""
 ;
 
+/**
+ * Convert the packet code to string.
+ */
+static const char *get_packet_name(int code) {
+	switch(code) {
+		case PW_AUTHENTICATION_REQUEST: return "Access-Request";
+		case PW_AUTHENTICATION_ACK: return "Access-Accept";
+		case PW_AUTHENTICATION_REJECT: return "Access-Reject";
+		case PW_ACCOUNTING_REQUEST: return "Accounting-Request";
+		case PW_ACCOUNTING_RESPONSE: return "Accounting-Response";
+		case PW_ACCOUNTING_STATUS: return "Accounting-Status";
+		case PW_PASSWORD_REQUEST: return "Password-Request";
+		case PW_PASSWORD_ACK: return "Password-Accept";
+		case PW_PASSWORD_REJECT: return "Password-Reject";
+		case PW_ACCOUNTING_MESSAGE: return "Accounting-Message";
+		case PW_ACCESS_CHALLENGE: return "Access-Challenge";
+		default: return "Unknown";
+	}
+}
+
 /** log helper
  *
  * @param[in] err		syslog priority id
@@ -144,7 +164,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			}
 
 		} else if (!strcmp(*argv, "force_prompt")) {
-			conf->force_prompt= TRUE;
+			conf->force_prompt = TRUE;
 
 		} else if (!strcmp(*argv, "prompt_attribute")) {
 			conf->prompt_attribute = TRUE;
@@ -162,6 +182,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	if (conf->debug) {
 #define print_bool(cond) (cond) ? "yes" : "no"
+#define print_string(cond) (cond) ? cond : ""
 
 		_pam_log(LOG_DEBUG, "DEBUG: conf_file='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' accounting_bug=%s ruser=%s prompt='%s' force_prompt=%s "\
@@ -172,7 +193,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				print_bool(ctrl & PAM_SKIP_PASSWD),
 				conf->retries,
 				print_bool(conf->localifdown),
-				conf->client_id ? conf->client_id : "",
+				print_string(conf->client_id),
 				print_bool(conf->accounting_bug),
 				print_bool(ctrl & PAM_RUSER_ARG),
 				conf->prompt,
@@ -472,7 +493,7 @@ static void add_int_attribute(AUTH_HDR *request, uint8_t type, int data)
 	add_attribute(request, type, (uint8_t *) &value, sizeof(int));
 }
 
-static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
+static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {
 	struct addrinfo hints;
 	struct addrinfo *ai_start;
 	struct addrinfo *ai;
@@ -520,7 +541,7 @@ static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
  * us to simply call add_password to update the password for different
  * servers.
  */
-static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, char *secret)
+static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, CONST char *secret)
 {
 	MD5_CTX md5_secret, my_md5;
 	uint8_t misc[AUTH_VECTOR_LEN];
@@ -556,7 +577,7 @@ static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, 
 	/* encrypt the password */
 	/* password : e[0] = p[0] ^ MD5(secret + vector) */
 	MD5Init(&md5_secret);
-	MD5Update(&md5_secret, (uint8_t *) secret, strlen(secret));
+	MD5Update(&md5_secret, (CONST uint8_t *) secret, strlen(secret));
 	my_md5 = md5_secret;				/* so we won't re-do the hash later */
 	MD5Update(&my_md5, vector, AUTH_VECTOR_LEN);
 	MD5Final(misc, &my_md5);			/* set the final vector */
@@ -764,8 +785,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		/*
 		 *	Fill in the relevant fields.
 		 */
-		server = malloc(sizeof(radius_server_t));
-		memset(server, 0, sizeof(*server));
+		server = calloc(1, sizeof(radius_server_t));
 		*last = server;
 		server->next = NULL;
 		last = &server->next;
@@ -1237,11 +1257,11 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, 
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv)
 {
-	CONST char *user;
-	CONST char *userinfo;
+	CONST char *user = NULL;
+	CONST char *userinfo = NULL;
 	CONST char *old_password = NULL;
 	char *password = NULL;
-	CONST char *rhost;
+	CONST char *rhost = NULL;
 	char *resp2challenge = NULL;
 	int ctrl;
 	int debug;
@@ -1309,7 +1329,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 	/* now we've got a socket open, so we've got to clean it up on error */
 #undef PAM_FAIL_CHECK
-#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {goto do_next; }
+#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { goto do_next; }
 
 	/* build and initialize the RADIUS packet */
 	request->code = PW_AUTHENTICATION_REQUEST;
@@ -1362,12 +1382,12 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
-	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d", request->code);
+	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d (%s)", request->code, get_packet_name(request->code));
 
 	retval = talk_radius(&config, request, response, password, NULL, config.retries + 1);
 	PAM_FAIL_CHECK;
 
-	DPRINT(LOG_DEBUG, "Got RADIUS response code %d", response->code);
+	DPRINT(LOG_DEBUG, "Got RADIUS response code %d (%s)", response->code, get_packet_name(response->code));
 
 	/*
 	 *	If we get an authentication failure, and we sent a NULL password,
@@ -1524,7 +1544,7 @@ do_next:
 		pam_set_item(pamh, PAM_AUTHTOK, password);
 	}
 
-	DPRINT(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
+	DPRINT(LOG_DEBUG, "authentication %s", retval == PAM_SUCCESS ? "succeeded":"failed");
 
 	close(config.sockfd);
 	if (config.sockfd6 >= 0) close(config.sockfd6);
