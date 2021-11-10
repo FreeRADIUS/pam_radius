@@ -52,3 +52,25 @@ When building under clang and some later versions of GCC with `--enable-develope
 
 - `--enable-address-sanitizer`, enables address sansitizer (detects use after free issues, and out of bounds accesses).
 - `--enable-leak-sanitizer`, enables leak sanitizer (detects memory leaks).
+
+## Packages
+
+## RedHat/CentOs
+
+```
+$ ./configure
+$ make rpm
+$ rpm -ivh rpmbuild/RPMS/x86_64/pam*.rpm
+```
+
+i.e: Example for SSHD+PAM in [redhat/pam_sshd_example](redhat/pam_sshd_example)
+
+## Debian/Ubuntu
+
+```
+$ ./configure
+$ make deb
+$ dpkg -i ../libpam-radius-auth_*.deb
+```
+
+i.e: Example for SSHD+PAM in [debian/pam_sshd_example](debian/pam_sshd_example)
