@@ -71,20 +71,28 @@ static const char *get_packet_name(int code) {
 
 /** log helper
  *
- * @param[in] err		syslog priority id
- * @param[in] format	Variadic arguments
+ * @param[in] err		Syslog priority id.
+ * @param[in] msg		Mensagem to print.
+ * @param[in] ...		Arguments for msg string.
  */
-static void _pam_log(int err, CONST char *format, ...)
+static void _pam_log(int err, char CONST *msg, ...)
 {
-	va_list args;
-	char buffer[BUFFER_SIZE];
+	char buf[BUFFER_SIZE];
+	va_list ap;
 
-	va_start(args, format);
-	vsnprintf(buffer, sizeof(buffer), format, args);
+	va_start(ap, msg);
+#ifdef __clang__
+#	pragma clang diagnostic push
+#	pragma clang diagnostic ignored "-Wformat-nonliteral"
+#endif
+	(void)vsnprintf(buf, sizeof(buf), msg, ap);
+#ifdef __clang__
+#	pragma clang diagnostic pop
+#endif
+	va_end(ap);
 
 	/* don't do openlog or closelog, but put our name in to be friendly */
-	syslog(err, "%s: %s", pam_module_name, buffer);
-	va_end(args);
+	syslog(err, "%s: %s", pam_module_name, buf);
 }
 
 /** Argument parsing
