@@ -496,9 +496,9 @@ static void add_attribute(AUTH_HDR *request, uint8_t type, CONST uint8_t *data, 
  */
 static void add_int_attribute(AUTH_HDR *request, uint8_t type, int data)
 {
-	uint16_t value = htonl(data);
+	uint32_t value = htonl(data);
 
-	add_attribute(request, type, (uint8_t *) &value, sizeof(int));
+	add_attribute(request, type, (uint8_t *) &value, sizeof(value));
 }
 
 static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {
