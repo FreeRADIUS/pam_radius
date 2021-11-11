@@ -102,7 +102,18 @@ jobs:
 
     - name: Make
       run: |
-        make -j `nproc`
+        make -j `nproc` 2> build.warnings.log
+
+    - name: "Check if we have 'warnings'"
+      run: |
+        count=$(cat build.warnings.log | wc -l)
+        if [ $count -gt 0 ]; then
+          echo "ERROR: We can't continue due to the below 'build warnings'"
+          echo "----------------------------------------------------------"
+          cat build.warnings.log
+          echo "----------------------------------------------------------"
+          exit 666
+        fi
 
     - name: Install /lib/security/pam_radius_auth.so
       run: |
