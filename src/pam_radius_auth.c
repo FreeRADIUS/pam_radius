@@ -192,7 +192,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 #define print_bool(cond) (cond) ? "yes" : "no"
 #define print_string(cond) (cond) ? cond : ""
 
-		_pam_log(LOG_DEBUG, "DEBUG: conf_file='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
+		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' accounting_bug=%s ruser=%s prompt='%s' force_prompt=%s "\
 							"prompt_attribute=%s max_challenge=%d privilege_level=%s",
 				conf->conf_file,
