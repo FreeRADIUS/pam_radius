@@ -96,7 +96,7 @@ jobs:
             enable_sanitizers=""
         fi
 
-        CFLAGS="${BUILD_CFLAGS}" ./configure -C \
+        CFLAGS="${BUILD_CFLAGS}" ./configure -C --enable-werror \
             $enable_sanitizers \
         || cat ./config.log
 
