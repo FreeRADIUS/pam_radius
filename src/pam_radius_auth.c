@@ -71,20 +71,28 @@ static const char *get_packet_name(int code) {
 
 /** log helper
  *
- * @param[in] err		syslog priority id
- * @param[in] format	Variadic arguments
+ * @param[in] err		Syslog priority id.
+ * @param[in] msg		Mensagem to print.
+ * @param[in] ...		Arguments for msg string.
  */
-static void _pam_log(int err, CONST char *format, ...)
+static void _pam_log(int err, char CONST *msg, ...)
 {
-	va_list args;
-	char buffer[BUFFER_SIZE];
+	char buf[BUFFER_SIZE];
+	va_list ap;
 
-	va_start(args, format);
-	vsnprintf(buffer, sizeof(buffer), format, args);
+	va_start(ap, msg);
+#ifdef __clang__
+#	pragma clang diagnostic push
+#	pragma clang diagnostic ignored "-Wformat-nonliteral"
+#endif
+	(void)vsnprintf(buf, sizeof(buf), msg, ap);
+#ifdef __clang__
+#	pragma clang diagnostic pop
+#endif
+	va_end(ap);
 
 	/* don't do openlog or closelog, but put our name in to be friendly */
-	syslog(err, "%s: %s", pam_module_name, buffer);
-	va_end(args);
+	syslog(err, "%s: %s", pam_module_name, buf);
 }
 
 /** Argument parsing
@@ -98,6 +106,7 @@ static void _pam_log(int err, CONST char *format, ...)
 static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 {
 	int ctrl = 0;
+	int i = 0;
 
 	memset(conf, 0, sizeof(radius_conf_t)); /* ensure it's initialized */
 
@@ -112,71 +121,78 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 	if ((argc == 0) || (argv == NULL)) return ctrl;
 
 	/* step through arguments */
-	for (ctrl=0; argc-- > 0; ++argv) {
+	for (i = 0; i < argc; i++) {
+		char *arg;
+
+		memcpy(&arg, &argv[i], sizeof(arg));
+
+#ifndef NDEBUG
+		_pam_log(LOG_DEBUG, "_pam_parse: argv[%d] = '%s'", i, arg);
+#endif
 
 		/* generic options */
-		if (!strncmp(*argv,"conf=",5)) {
-			conf->conf_file = *argv+5;
+		if (!strncmp(arg, "conf=", 5)) {
+			conf->conf_file = (arg + 5);
 
-		} else if (!strcmp(*argv, "use_first_pass")) {
+		} else if (!strcmp(arg, "use_first_pass")) {
 			ctrl |= PAM_USE_FIRST_PASS;
 
-		} else if (!strcmp(*argv, "try_first_pass")) {
+		} else if (!strcmp(arg, "try_first_pass")) {
 			ctrl |= PAM_TRY_FIRST_PASS;
 
-		} else if (!strcmp(*argv, "skip_passwd")) {
+		} else if (!strcmp(arg, "skip_passwd")) {
 			ctrl |= PAM_SKIP_PASSWD;
 
-		} else if (!strncmp(*argv, "retry=", 6)) {
-			conf->retries = strtoul(*argv+6, 0, 10);
+		} else if (!strncmp(arg, "retry=", 6)) {
+			conf->retries = strtoul((arg + 6), 0, 10);
 
-		} else if (!strcmp(*argv, "localifdown")) {
+		} else if (!strcmp(arg, "localifdown")) {
 			conf->localifdown = 1;
 
-		} else if (!strncmp(*argv, "client_id=", 10)) {
+		} else if (!strncmp(arg, "client_id=", 10)) {
 			if (conf->client_id) {
-				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
 			} else {
-				conf->client_id = (const char *) *argv+10; /* point to the client-id */
+				conf->client_id = (arg + 10); /* point to the client-id */
 			}
-		} else if (!strcmp(*argv, "accounting_bug")) {
+		} else if (!strcmp(arg, "accounting_bug")) {
 			conf->accounting_bug = TRUE;
 
-		} else if (!strcmp(*argv, "ruser")) {
+		} else if (!strcmp(arg, "ruser")) {
 			ctrl |= PAM_RUSER_ARG;
 
-		} else if (!strcmp(*argv, "debug")) {
+		} else if (!strcmp(arg, "debug")) {
 			ctrl |= PAM_DEBUG_ARG;
 			conf->debug = TRUE;
 
-		} else if (!strncmp(*argv, "prompt=", 7)) {
-			if (!strncmp(conf->prompt, (const char*)*argv+7, MAXPROMPT)) {
-				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
+		} else if (!strncmp(arg, "prompt=", 7)) {
+			if (!strncmp(conf->prompt, (arg+7), MAXPROMPT)) {
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
 			} else {
 				/* truncate excessive prompts to (MAXPROMPT - 3) length */
-				if (strlen((const char*)*argv+7) >= (MAXPROMPT - 3)) {
-					*((char*)*argv+7 + (MAXPROMPT - 3)) = 0;
+				if (strlen((arg+7)) >= (MAXPROMPT - 3)) {
+					*((arg + 7) + (MAXPROMPT - 3)) = '\0';
 				}
 
 				/* set the new prompt */
 				memset(conf->prompt, 0, sizeof(conf->prompt));
-				snprintf(conf->prompt, MAXPROMPT, "%s: ", (const char*)*argv+7);
+				snprintf(conf->prompt, MAXPROMPT, "%s: ", (arg+7));
 			}
 
-		} else if (!strcmp(*argv, "force_prompt")) {
+		} else if (!strcmp(arg, "force_prompt")) {
 			conf->force_prompt = TRUE;
 
-		} else if (!strcmp(*argv, "prompt_attribute")) {
+		} else if (!strcmp(arg, "prompt_attribute")) {
 			conf->prompt_attribute = TRUE;
 
-		} else if (!strncmp(*argv, "max_challenge=", 14)) {
-			conf->max_challenge = strtoul(*argv+14, 0, 10);
+		} else if (!strncmp(arg, "max_challenge=", 14)) {
+			conf->max_challenge = strtoul((arg+14), 0, 10);
 
-		} else if (!strcmp(*argv, "privilege_level")) {
+		} else if (!strcmp(arg, "privilege_level")) {
 			conf->privilege_level = TRUE;
 
 		} else {
-			_pam_log(LOG_WARNING, "unrecognized option '%s'", *argv);
+			_pam_log(LOG_WARNING, "unrecognized option '%s'", arg);
 		}
 	}
 
@@ -184,7 +200,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 #define print_bool(cond) (cond) ? "yes" : "no"
 #define print_string(cond) (cond) ? cond : ""
 
-		_pam_log(LOG_DEBUG, "DEBUG: conf_file='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
+		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' accounting_bug=%s ruser=%s prompt='%s' force_prompt=%s "\
 							"prompt_attribute=%s max_challenge=%d privilege_level=%s",
 				conf->conf_file,
@@ -488,9 +504,9 @@ static void add_attribute(AUTH_HDR *request, uint8_t type, CONST uint8_t *data, 
  */
 static void add_int_attribute(AUTH_HDR *request, uint8_t type, int data)
 {
-	uint16_t value = htonl(data);
+	uint32_t value = htonl(data);
 
-	add_attribute(request, type, (uint8_t *) &value, sizeof(int));
+	add_attribute(request, type, (uint8_t *) &value, sizeof(value));
 }
 
 static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {

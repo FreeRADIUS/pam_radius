@@ -106,7 +106,7 @@ dnl #
 dnl #  Set Default CFLAGS for GCC compatible compilers
 dnl #
 if test "x$GCC" = "xyes"; then
-  CFLAGS="$CFLAGS -Wall -D_GNU_SOURCE"
+  CFLAGS="$CFLAGS -Wall -std=c99 -D_GNU_SOURCE"
 fi
 
 dnl #
