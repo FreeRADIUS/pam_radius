@@ -36,10 +36,10 @@
 #define DPRINT if (debug) _pam_log
 
 /* internal data */
-static CONST char *pam_module_name = "pam_radius_auth";
+static CONST char pam_module_name[] = "pam_radius_auth";
 
 /* module version */
-static CONST char *pam_module_version = PAM_RADIUS_VERSION_STRING
+static CONST char pam_module_version[] = PAM_RADIUS_VERSION_STRING
 #ifndef NDEBUG
 	" DEVELOPER BUILD - "
 #endif
