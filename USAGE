@@ -15,7 +15,7 @@ relevant in for all uses of the module.
 
 debug          - print out extensive debugging information via pam_log.
                  These messages generally end up being handled by
-                 sylog(), and go to /var/log/messages.  Depending on
+                 syslog(), and go to /var/log/messages.  Depending on
                  your host operating system, the log messages may be
                  elsewhere.
 		 You should generally use the debug option when first

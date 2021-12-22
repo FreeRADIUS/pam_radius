@@ -530,7 +530,7 @@ if test "x$developer" = "xyes"; then
   fi
 
   dnl #
-  dnl #  Can't use mutliple -fsanitize flags, so we need to combine
+  dnl #  Can't use multiple -fsanitize flags, so we need to combine
   dnl #  the values into one.
   dnl #
   fsanitizeflags=

@@ -150,7 +150,7 @@ rpmbuild/SOURCES/pam_radius-$(VERSION).tar.bz2: pam_radius-$(VERSION).tar.bz2
 
 rpm: rpmbuild/SOURCES/pam_radius-$(VERSION).tar.bz2
 	@if ! yum-builddep -q -C --assumeno --define "_version $(VERSION)" redhat/pam_radius_auth.spec 1> /dev/null 2>&1; then \
-		echo "ERROR: Required depdendencies not found, install them with: yum-builddep redhat/pam_radius_auth.spec"; \
+		echo "ERROR: Required dependencies not found, install them with: yum-builddep redhat/pam_radius_auth.spec"; \
 		exit 1; \
 	fi
 	@QA_RPATHS=0x0003 rpmbuild --define "_version $(VERSION)" --define "_topdir `pwd`/rpmbuild" -bb redhat/pam_radius_auth.spec

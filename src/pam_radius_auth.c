@@ -1486,7 +1486,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		}
 	}
 
-	/* Whew! Done the pasword checks, look for an authentication acknowledge */
+	/* Whew! Done the password checks, look for an authentication acknowledge */
 	if (response->code == PW_AUTHENTICATION_ACK) {
 		retval = PAM_SUCCESS;
 
@@ -1525,7 +1525,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			val = ntohl(*((int *)a_mpl->data));
 			sprintf(priv, "Privilege=%d", val);
 
-			/* Save Management-Privilege-Level value in PAM environment variable 'Privilige' */
+			/* Save Management-Privilege-Level value in PAM environment variable 'Privilege' */
 			retval = pam_putenv(pamh, priv);
 			if(retval != PAM_SUCCESS) {
 				_pam_log(LOG_ERR, "unable to set PAM environment variable : Privilege");

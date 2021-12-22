@@ -52,7 +52,7 @@ Alan DeKok <aland@freeradius.org>
 
 When building under clang and some later versions of GCC with `--enable-developer`, you can add the following flags:
 
-- `--enable-address-sanitizer`, enables address sansitizer (detects use after free issues, and out of bounds accesses).
+- `--enable-address-sanitizer`, enables address sanitizer (detects use after free issues, and out of bounds accesses).
 - `--enable-leak-sanitizer`, enables leak sanitizer (detects memory leaks).
 
 ## Packages
