@@ -183,7 +183,7 @@ jobs:
         sudo /usr/sbin/radiusd
 
         echo "#######################################################"
-        echo "## Show processs"
+        echo "## Show processes"
         ps aux | grep -E "([r]adius|[s]sh|[s]yslog)"
 
     - name: "Content of /etc/ssh/sshd_config"
@@ -227,7 +227,7 @@ jobs:
     #  If the CI has failed and the branch is ci-debug then we start a tmate
     #  session to provide interactive shell access to the session.
     #
-    #  The SSH rendezvous point will be emited continuously in the job output,
+    #  The SSH rendezvous point will be emitted continuously in the job output,
     #  which will look something like:
     #
     #      SSH: ssh VfuX8SrNuU5pGPMyZcz7TpJTa@sfo2.tmate.io
