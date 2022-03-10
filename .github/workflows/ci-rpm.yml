@@ -239,6 +239,19 @@ jobs:
         #   exit 1
         # fi
 
+    - name: Get package name
+      run: |
+        VERSION_COMMIT=$(git rev-parse --short=8 HEAD)
+        echo "PACKAGE_NAME=$(ls -1 rpms/*.rpm | sed 's/.*\///g; s/\.rpm//g')_git-${VERSION_COMMIT}_${{ matrix.env.NAME }}.zip" >> $GITHUB_ENV
+
+    - name: Store RPMs
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ env.PACKAGE_NAME }}
+        path: rpms/
+        retention-days: 1
+        if-no-files-found: warn
+
     #
     #  If the CI has failed and the branch is ci-debug then we start a tmate
     #  session to provide interactive shell access to the session.

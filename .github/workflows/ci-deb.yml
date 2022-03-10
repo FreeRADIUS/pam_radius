@@ -45,6 +45,11 @@ jobs:
           - { NAME: "ubuntu-21.04", OS: "ubuntu:21.04", DIST: "ubuntu" }
 
     steps:
+    # Issue as reported in https://github.com/actions/checkout/issues/335
+    - name: Obtain Latest Git ONLY within container for checkout
+      run: |
+        apt-get update
+        apt-get install -y git
 
     # Checkout, but defer pulling LFS objects until we've restored the cache
     - uses: actions/checkout@v2
@@ -61,9 +66,14 @@ jobs:
       run: |
         make deb
 
+    - name: Collect DEBs
+      run: |
+        mkdir debs
+        mv ../*.deb debs
+
     - name: "Install .deb packages"
       run: |
-        dpkg -i ../libpam*deb
+        dpkg -i debs/libpam*deb
 
     - name: "Show infos of the .deb package"
       run: |
@@ -148,6 +158,19 @@ jobs:
           echo "ERROR: Something goes wrong with the SSH + PAM_RADIUS authentication!"
           exit 1
         fi
+
+    - name: Get package name
+      run: |
+        VERSION_COMMIT=$(git rev-parse --short=8 HEAD)
+        echo "PACKAGE_NAME=$(ls -1 debs/*.deb | sed 's/.*\///g; s/\.deb//g')_git-${VERSION_COMMIT}_${{ matrix.env.NAME }}.zip" >> $GITHUB_ENV
+
+    - name: Store DEBs
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ env.PACKAGE_NAME }}
+        path: debs/
+        retention-days: 1
+        if-no-files-found: warn
 
     #
     #  If the CI has failed and the branch is ci-debug then we start a tmate
