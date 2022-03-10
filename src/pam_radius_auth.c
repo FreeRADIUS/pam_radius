@@ -675,10 +675,16 @@ static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage
 		return -1;
 	}
 
-	/* open a IPv6 socket.	Dies if it fails */
+	/* open a IPv6 socket. */
 	*sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
 	if (*sockfd6 < 0) {
 		char error_string[BUFFER_SIZE];
+
+		/*
+		 *	IPv6 can be disabled on localhost.
+		 */
+		if (errno == EAFNOSUPPORT) return 0;
+
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Failed to open RADIUS IPv6 socket: %s\n", error_string);
 		return -1;
@@ -1003,6 +1009,11 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			sockfd = server->sockfd != -1 ? server->sockfd : conf->sockfd;
 		} else {
 			sockfd = server->sockfd6 != -1 ? server->sockfd6 : conf->sockfd6;
+
+			if (sockfd < 0) { /* we don't support IPv6, so ignore servers which use it */
+				ok = FALSE;
+				goto next;
+			}
 		}
 
 		total_length = ntohs(request->length);
