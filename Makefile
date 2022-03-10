@@ -26,25 +26,6 @@ VERSION = $(shell cat VERSION)
 
 ######################################################################
 #
-# If we're really paranoid, use these flags
-#CFLAGS = -Wall -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -Waggregate-return
-#
-#  If you're not using GCC, then you'll have to change the CFLAGS.
-#
-CFLAGS += -Wall
-
-#
-# On Irix, use this with MIPSPRo C Compiler, and don't forget to export CC=cc
-# gcc on Irix does not work yet for pam_radius
-# Also, use gmake instead of make
-# Then copy pam_radius_auth.so to /usr/freeware/lib32/security (PAM dir)
-# CFLAGS =
-
-#LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
-LDFLAGS += -shared
-
-######################################################################
-#
 #  The default rule to build everything.
 #
 all: pam_radius_auth.so
