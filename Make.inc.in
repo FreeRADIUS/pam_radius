@@ -4,9 +4,10 @@
 # Version:	$Id: dc3f7040bd40b7c0b65df63ba74405b33e9f8993 $
 #
 
-CC	  = @CC@
-RANLIB	  = @RANLIB@
-CFLAGS	  = -fPIC -fno-strict-aliasing @CFLAGS@
-CPPFLAGS  = -fPIC -fno-strict-aliasing @CPPFLAGS@
-LDFLAGS   = -fPIC @LDFLAGS@
+CC        = @CC@
+RANLIB    = @RANLIB@
+CFLAGS    = -Wall -fPIC -fno-strict-aliasing @CFLAGS@
+CPPFLAGS  = -Wall -fPIC -fno-strict-aliasing @CPPFLAGS@
+LDFLAGS   = -shared -fPIC @LDFLAGS@
 
+UNAME_S  := $(shell uname -s)
