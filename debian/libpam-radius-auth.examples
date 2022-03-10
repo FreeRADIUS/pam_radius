@@ -1,2 +1,3 @@
 debian/pam_example
+debian/pam_sshd_example
 pam_radius_auth.conf

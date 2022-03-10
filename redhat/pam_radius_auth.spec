@@ -63,7 +63,7 @@ rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root)
-%doc README.md INSTALL USAGE LICENSE Changelog
+%doc README.md INSTALL USAGE LICENSE Changelog redhat/pam_sshd_example
 %config(noreplace) %attr(0600, root, root) %{_sysconfdir}/pam_radius_auth.conf
 %dir %attr(755,root,root) /%{_lib}/security/
 /%{_lib}/security/pam_radius_auth.so
