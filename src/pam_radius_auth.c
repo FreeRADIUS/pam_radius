@@ -1372,7 +1372,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 	if (old_password) {
 		password = strdup(old_password);
-		DPRINT(LOG_DEBUG, "Got password %s", password);
 	}
 
 	/* no previous password: maybe get one from the user */
