@@ -866,7 +866,6 @@ static int initialize(radius_conf_t *conf, int accounting)
 			}
 		}
 	}
-	fclose(fp);
 
 	if (!conf->server) {		/* no server found, die a horrible death */
 		_pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
@@ -886,6 +885,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		goto error;
 	}
 
+	fclose(fp);
 	return PAM_SUCCESS;
 
 error:
