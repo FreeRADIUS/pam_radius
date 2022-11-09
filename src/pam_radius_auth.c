@@ -179,6 +179,34 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				snprintf(conf->prompt, MAXPROMPT, "%s: ", (arg+7));
 			}
 
+		} else if (!strncmp(arg, "challenge=", 10)) {
+			if (!strncmp(conf->challenge, (arg+10), MAXCHALLENGE)) {
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
+			} else {
+				/* truncate excessive challenge prompts to (MAXCHALLENGE - 3) length */
+				if (strlen((arg+10)) >= (MAXCHALLENGE - 3)) {
+					*((arg + 10) + (MAXCHALLENGE - 3)) = '\0';
+				}
+
+				/* set the new challenge prompt */
+				memset(conf->challenge, 0, sizeof(conf->challenge));
+				snprintf(conf->challenge, MAXCHALLENGE, "%s: ", (arg+10));
+			}
+
+		} else if (!strncmp(arg, "banner=", 7)) {
+			if (!strncmp(conf->banner, (arg+7), MAXBANNER)) {
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
+			} else {
+				/* truncate excessive bannerss to (MAXBANNER - 3) length */
+				if (strlen((arg+7)) >= (MAXBANNER - 3)) {
+					*((arg + 7) + (MAXBANNER - 3)) = '\0';
+				}
+
+				/* set a banner */
+				memset(conf->banner, 0, sizeof(conf->banner));
+				snprintf(conf->banner, MAXCHALLENGE, "%s: ", (arg+7));
+			}
+
 		} else if (!strcmp(arg, "force_prompt")) {
 			conf->force_prompt = TRUE;
 
@@ -1358,6 +1386,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { goto do_next; }
 
+
 	/* build and initialize the RADIUS packet */
 	request->code = PW_AUTHENTICATION_REQUEST;
 	get_random_vector(request->vector);
@@ -1444,9 +1473,13 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			retval = PAM_AUTHINFO_UNAVAIL;
 			goto do_next;
 		}
-
-		memcpy(challenge, a_reply->data, a_reply->length - 2);
-		challenge[a_reply->length - 2] = 0;
+        if (config.challenge){
+            memcpy(challenge,config.challenge,sizeof(config.challenge));
+            challenge[strlen(config.challenge)] = 0;
+        } else {
+		    memcpy(challenge, a_reply->data, a_reply->length - 2);
+		    challenge[a_reply->length - 2] = 0;
+        }
 
 		/* It's full challenge-response, default to echo on, unless the server wants it off */
 		prompt = PAM_PROMPT_ECHO_ON;
