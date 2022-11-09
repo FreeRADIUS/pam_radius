@@ -1474,7 +1474,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			retval = PAM_AUTHINFO_UNAVAIL;
 			goto do_next;
 		}
-        if (config.challenge){
+        if (strlen(config.challenge) != 0){
             memcpy(challenge,config.challenge,sizeof(config.challenge));
             challenge[strlen(config.challenge)] = 0;
         } else {
