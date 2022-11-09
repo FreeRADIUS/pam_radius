@@ -1352,6 +1352,14 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		return PAM_USER_UNKNOWN;
 	}
 
+    /* Print banner */
+    
+    if (config.banner){
+        
+        printf("%s",config.banner);
+        
+    }
+
 	DPRINT(LOG_DEBUG, "Got user name: '%s'", user);
 
 	if (ctrl & PAM_RUSER_ARG) {
@@ -1386,6 +1394,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	/* now we've got a socket open, so we've got to clean it up on error */
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { goto do_next; }
+
 
 
 	/* build and initialize the RADIUS packet */
