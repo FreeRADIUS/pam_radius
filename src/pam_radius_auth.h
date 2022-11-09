@@ -58,6 +58,9 @@
 #define MAXPROMPT 33               /* max prompt length, including '\0' */
 #define DEFAULT_PROMPT "Password"  /* default prompt, without the ': '  */
 
+/* Custom challenge length */
+#define MAXCHALLENGE 90
+
 
 /*************************************************************************
  * Platform specific defines
@@ -98,6 +101,7 @@
 #define PAM_USE_FIRST_PASS 4
 #define PAM_TRY_FIRST_PASS 8
 #define PAM_RUSER_ARG      16
+
 
 
 /* buffer size for IP address in string form */
@@ -185,6 +189,7 @@ typedef struct radius_conf_t {
 	int debug;
 	CONST char *conf_file;
 	char prompt[MAXPROMPT];
+    char challenge[MAXCHALLENGE];
 	int prompt_attribute;
 	int privilege_level;
 } radius_conf_t;
