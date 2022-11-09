@@ -1356,7 +1356,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
     
     if (config.banner){
         DPRINT(LOG_DEBUG, "A banner message is configured. Printing it.");
-        printf("%s",config.banner);
+        printf("Oh, no banner? %s",config.banner);
         
     }
 
