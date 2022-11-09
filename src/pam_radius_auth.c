@@ -193,20 +193,6 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				snprintf(conf->challenge, MAXCHALLENGE, "%s: ", (arg+10));
 			}
 
-		} else if (!strncmp(arg, "banner=", 7)) {
-			if (!strncmp(conf->banner, (arg+7), MAXBANNER)) {
-				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
-			} else {
-				/* truncate excessive bannerss to (MAXBANNER - 3) length */
-				if (strlen((arg+7)) >= (MAXBANNER - 3)) {
-					*((arg + 7) + (MAXBANNER - 3)) = '\0';
-				}
-
-				/* set a banner */
-				memset(conf->banner, 0, sizeof(conf->banner));
-				snprintf(conf->banner, MAXCHALLENGE, "%s: ", (arg+7));
-			}
-
 		} else if (!strcmp(arg, "force_prompt")) {
 			conf->force_prompt = TRUE;
 
@@ -223,6 +209,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", arg);
 		}
 	}
+
 
 	if (conf->debug) {
 #define print_bool(cond) (cond) ? "yes" : "no"
@@ -1311,6 +1298,8 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, 
 		return retval; \
 	}
 
+
+
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv)
 {
 	CONST char *user = NULL;
@@ -1352,13 +1341,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		return PAM_USER_UNKNOWN;
 	}
 
-    /* Print banner */
-    
-    if (config.banner){
-        DPRINT(LOG_DEBUG, "A banner message is configured. Printing it.");
-        retval = rad_converse(pamh, PAM_TEXT_INFO, config.banner, NULL);
-        
-    }
 
 	DPRINT(LOG_DEBUG, "Got user name: '%s'", user);
 

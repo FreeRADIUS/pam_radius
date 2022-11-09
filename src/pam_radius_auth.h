@@ -61,9 +61,6 @@
 /* Custom challenge length */
 #define MAXCHALLENGE 90
 
-/* Banner length for optional banner string */
-#define MAXBANNER 200
-
 
 /*************************************************************************
  * Platform specific defines
@@ -193,7 +190,6 @@ typedef struct radius_conf_t {
 	CONST char *conf_file;
 	char prompt[MAXPROMPT];
     char challenge[MAXCHALLENGE];
-    char banner[MAXBANNER];
 	int prompt_attribute;
 	int privilege_level;
 } radius_conf_t;
