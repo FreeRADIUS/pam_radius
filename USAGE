@@ -96,6 +96,12 @@ force_prompt   - Request a new password and not using the previously entered
                  password. This useful for multi-factor authentication
                  when used with a Token.
 
+challenge=string - Specifies a custom challenge prompt. This will substitute
+                   any challenge prompt inside the Reply-Message attribute of a 
+                   Access-Challenge request to a custom prompt. Use 
+                   challenge="Enter your TOTP: " (or some other relevant string)
+                   in this situation.
+
 max_challenge=# - configure maximum number of challenges that a server
                   may request. This is a workaround for broken servers
                   and disabled by default.

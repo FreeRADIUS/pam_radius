@@ -179,6 +179,20 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				snprintf(conf->prompt, MAXPROMPT, "%s: ", (arg+7));
 			}
 
+		} else if (!strncmp(arg, "challenge=", 10)) {
+			if (!strncmp(conf->challenge, (arg+10), MAXCHALLENGE)) {
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
+			} else {
+				/* truncate excessive challenge prompts to (MAXCHALLENGE - 3) length */
+				if (strlen((arg+10)) >= (MAXCHALLENGE - 3)) {
+					*((arg + 10) + (MAXCHALLENGE - 3)) = '\0';
+				}
+
+				/* set the new challenge prompt */
+				memset(conf->challenge, 0, sizeof(conf->challenge));
+				snprintf(conf->challenge, MAXCHALLENGE, "%s: ", (arg+10));
+			}
+
 		} else if (!strcmp(arg, "force_prompt")) {
 			conf->force_prompt = TRUE;
 
@@ -196,13 +210,14 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		}
 	}
 
+
 	if (conf->debug) {
 #define print_bool(cond) (cond) ? "yes" : "no"
 #define print_string(cond) (cond) ? cond : ""
 
 		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' accounting_bug=%s ruser=%s prompt='%s' force_prompt=%s "\
-							"prompt_attribute=%s max_challenge=%d privilege_level=%s",
+							"prompt_attribute=%s challenge=%s max_challenge=%d privilege_level=%s",
 				conf->conf_file,
 				print_bool(ctrl & PAM_USE_FIRST_PASS),
 				print_bool(ctrl & PAM_TRY_FIRST_PASS),
@@ -215,6 +230,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				conf->prompt,
 				print_bool(conf->force_prompt),
 				print_bool(conf->prompt_attribute),
+                conf->challenge,
 				conf->max_challenge,
 				print_bool(conf->privilege_level)
 		);
@@ -1282,6 +1298,8 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, 
 		return retval; \
 	}
 
+
+
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv)
 {
 	CONST char *user = NULL;
@@ -1323,6 +1341,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		return PAM_USER_UNKNOWN;
 	}
 
+
 	DPRINT(LOG_DEBUG, "Got user name: '%s'", user);
 
 	if (ctrl & PAM_RUSER_ARG) {
@@ -1357,6 +1376,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	/* now we've got a socket open, so we've got to clean it up on error */
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { goto do_next; }
+
+
 
 	/* build and initialize the RADIUS packet */
 	request->code = PW_AUTHENTICATION_REQUEST;
@@ -1444,9 +1465,13 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			retval = PAM_AUTHINFO_UNAVAIL;
 			goto do_next;
 		}
-
-		memcpy(challenge, a_reply->data, a_reply->length - 2);
-		challenge[a_reply->length - 2] = 0;
+        if (strlen(config.challenge) != 0){
+            memcpy(challenge,config.challenge,sizeof(config.challenge));
+            challenge[strlen(config.challenge)] = 0;
+        } else {
+		    memcpy(challenge, a_reply->data, a_reply->length - 2);
+		    challenge[a_reply->length - 2] = 0;
+        }
 
 		/* It's full challenge-response, default to echo on, unless the server wants it off */
 		prompt = PAM_PROMPT_ECHO_ON;
