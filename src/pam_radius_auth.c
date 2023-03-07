@@ -115,6 +115,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 	/* set the default prompt */
 	snprintf(conf->prompt, MAXPROMPT, "%s: ", DEFAULT_PROMPT);
 
+	conf->use_ipv4 = 1;
+	conf->use_ipv6 = 1;
+
 	/*
 	 *	If either is not there, then we can't parse anything.
 	 */
@@ -188,12 +191,26 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		} else if (!strncmp(arg, "max_challenge=", 14)) {
 			conf->max_challenge = strtoul((arg+14), 0, 10);
 
+		} else if (!strncmp(arg, "ipv4=", 5)) {
+			if (!strcmp(arg + 5, "yes")) conf->use_ipv4 = 1;
+			if (!strcmp(arg + 5, "no")) conf->use_ipv4 = 0;
+
+		} else if (!strncmp(arg, "ipv6=", 5)) {
+			if (!strcmp(arg + 5, "yes")) conf->use_ipv6 = 1;
+			if (!strcmp(arg + 5, "no")) conf->use_ipv6 = 0;
+
 		} else if (!strcmp(arg, "privilege_level")) {
 			conf->privilege_level = TRUE;
 
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", arg);
 		}
+	}
+
+	if (!conf->use_ipv4 && !conf->use_ipv6) {
+		_pam_log(LOG_WARNING, "Cannot disable both IPv4 and IPv6'");
+
+		conf->use_ipv4 = 1;
 	}
 
 	if (conf->debug) {
@@ -636,8 +653,13 @@ static void cleanup(radius_server_t *server)
 	}
 }
 
-static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
+static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
 {
+	if (!conf->use_ipv4) {
+		*sockfd = -1;
+		goto use_ipv6;
+	}
+
 	/* open a socket.	Dies if it fails */
 	*sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (*sockfd < 0) {
@@ -675,6 +697,12 @@ static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage
 		return -1;
 	}
 
+	if (!conf->use_ipv6) {
+		*sockfd6 = -1;
+		return 0;
+	}
+
+use_ipv6:
 	/* open a IPv6 socket. */
 	*sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
 	if (*sockfd6 < 0) {
@@ -860,7 +888,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		}
 
 		if (valid_src_ip == 0 || vrf[0]) {
-			if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
+			if (initialize_sockets(conf, &server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
 
 				goto error;
 			}
@@ -881,7 +909,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
-	if (initialize_sockets(&conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
+	if (initialize_sockets(conf, &conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
 		goto error;
 	}
 
@@ -1009,11 +1037,14 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			sockfd = server->sockfd != -1 ? server->sockfd : conf->sockfd;
 		} else {
 			sockfd = server->sockfd6 != -1 ? server->sockfd6 : conf->sockfd6;
+		}
 
-			if (sockfd < 0) { /* we don't support IPv6, so ignore servers which use it */
-				ok = FALSE;
-				goto next;
-			}
+		/*
+		 *	Is there a valid socket for this server + address family?  If not, skip it.
+		 */
+		if (sockfd < 0) {
+			ok = FALSE;
+			goto next;
 		}
 
 		total_length = ntohs(request->length);

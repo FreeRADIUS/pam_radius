@@ -175,6 +175,8 @@ typedef struct radius_server_t {
 typedef struct radius_conf_t {
 	radius_server_t *server;
 	int retries;
+	int use_ipv4;
+	int use_ipv6;
 	int localifdown;
 	CONST char *client_id;
 	int accounting_bug;
