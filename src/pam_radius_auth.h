@@ -18,7 +18,6 @@
 #include <stdlib.h>
 #include <syslog.h>
 #include <stdarg.h>
-#include <utmp.h>
 #include <time.h>
 #include <netinet/in.h>
 #include <netdb.h>
