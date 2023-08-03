@@ -5693,12 +5693,6 @@ then :
   printf "%s\n" "#define HAVE_UNISTD_H 1" >>confdefs.h
 
 fi
-ac_fn_c_check_header_compile "$LINENO" "utmp.h" "ac_cv_header_utmp_h" "$ac_includes_default"
-if test "x$ac_cv_header_utmp_h" = xyes
-then :
-  printf "%s\n" "#define HAVE_UTMP_H 1" >>confdefs.h
-
-fi
 
 
 ac_fn_c_check_header_compile "$LINENO" "security/pam_appl.h" "ac_cv_header_security_pam_appl_h" "$ac_includes_default"

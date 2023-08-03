@@ -274,8 +274,7 @@ AC_CHECK_HEADERS( \
 	syslog.h \
 	poll.h \
 	time.h \
-	unistd.h \
-	utmp.h
+	unistd.h
 )
 
 AC_CHECK_HEADERS(security/pam_appl.h pam/pam_appl.h)
