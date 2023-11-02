@@ -40,22 +40,81 @@ jobs:
       fail-fast: false
       matrix:
         env:
-          - { NAME: "centos-7", OS: "centos:7", DIST: "centos" }
-          - { NAME: "centos-8", OS: "centos:8", DIST: "centos" }
+          - { "NAME": "centos-7", "OS": "centos:7",                      "DIST": "centos" }
+          - { "NAME": "centos-8", "OS": "centos:8",                      "DIST": "centos" }
+          - { "NAME": "rocky-8",  "OS": "rockylinux/rockylinux:8",       "DIST": "rocky"  }
+          - { "NAME": "rocky-9",  "OS": "rockylinux/rockylinux:9",       "DIST": "rocky"  }
 
     steps:
+    - name: Extra repos for CentOS and Rocky Linux 8
+      if: ${{ matrix.env.NAME == 'centos-' || matrix.env.NAME == 'stream-8' || matrix.env.NAME == 'rocky-8' }}
+      run: |
+        echo '[ltb-project]'                                              >  /etc/yum.repos.d/ltb-project.repo
+        echo 'name=LTB project packages'                                  >> /etc/yum.repos.d/ltb-project.repo
+        echo 'baseurl=https://ltb-project.org/rpm/$releasever/$basearch'  >> /etc/yum.repos.d/ltb-project.repo
+        echo 'enabled=1'                                                  >> /etc/yum.repos.d/ltb-project.repo
+        echo 'gpgcheck=1'                                                 >> /etc/yum.repos.d/ltb-project.repo
+        echo 'gpgkey=https://www.ltb-project.org/documentation/_static/RPM-GPG-KEY-LTB-project' >> /etc/yum.repos.d/ltb-project.repo
+        rpm --import https://www.ltb-project.org/documentation/_static/RPM-GPG-KEY-LTB-project
+
+    #
+    # Centos9 is EOL, so we need the below tricks to get it to work.
+    #
+    # Converting from CentOS Linux 8 to CentOS Stream 8 is the "official" process
+    # (see centos.org/centos-stream/#centos-stream-8):
+    #
+    - name: Some hacks for CentOS 8 (EOL) to work again.
+      if: ${{ matrix.env.NAME == 'centos-8' }}
+      run: |
+        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
+        yum upgrade -y
+        yum -y --disablerepo '*' --enablerepo extras swap centos-linux-repos centos-stream-repos
+        yum clean all && yum makecache
+        yum distro-sync -y --allowerasing
+
+    - name: Enable EPEL for CentOS and Rocky Linux
+      if: ${{ startsWith(matrix.env.NAME, 'centos-') || startsWith(matrix.env.NAME, 'rocky-') }}
+      run: |
+        yum install -y epel-release
 
     # Required so that the checkout action uses git protocol rather than the GitHub REST API.
     # make rpm requires the FR directory to be a git repository.
-    - name: "Install recent git for CentOS 7"
+    - name: Install recent git for CentOS 7
       if: ${{ matrix.env.NAME == 'centos-7' }}
       run: |
-        yum install -y https://packages.endpoint.com/rhel/7/os/x86_64/git-core-2.24.1-1.ep7.x86_64.rpm
+        yum install -y https://packages.endpointdev.com/rhel/7/os/x86_64/git-core-2.30.1-1.ep7.x86_64.rpm
 
-    - name: "Install distro git for CentOS > 7"
-      if: ${{ matrix.env.NAME != 'centos-7' }}
+    - name: Install distro git for Rocky and CentOS 8.
+      if: ${{ startsWith(matrix.env.NAME, 'rocky-') || matrix.env.NAME == 'centos-8' }}
       run: |
-        yum install -y git-core
+        yum install -y git-core git
+
+    - name: Enable PowerTools / CRB
+      run: |
+        yum install -y yum-utils dnf-plugins-core
+        yum config-manager --enable PowerTools || :
+        yum config-manager --enable powertools || :
+        yum config-manager --enable crb || :
+
+    - name: Enable EPEL for Rocky Linux 9
+      if: ${{ matrix.env.NAME == 'rocky-9' }}
+      run: |
+        yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+    - name: Set up NetworkRADIUS extras repository
+      run: |
+        echo '[networkradius-extras]'                                                               >  /etc/yum.repos.d/networkradius-extras.repo
+        echo 'name=NetworkRADIUS-extras-$releasever'                                                >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'baseurl=http://packages.networkradius.com/extras/${{ matrix.env.DIST }}/$releasever/' >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'enabled=1'                                                                            >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'gpgcheck=1'                                                                           >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'gpgkey=https://packages.networkradius.com/pgp/packages@networkradius.com'             >> /etc/yum.repos.d/networkradius-extras.repo
+        rpm --import https://packages.networkradius.com/pgp/packages@networkradius.com
+
+    - name: Install common tools
+      run: |
+        yum install -y rpm-build openssl make gcc perl
 
     - name: "Install common tools"
       run: |
@@ -63,69 +122,40 @@ jobs:
           yum-utils \
           bzip2 \
           gcc \
+          hostname \
           make \
           perl \
+          procps-ng \
           rpm-build \
           psmisc \
           sudo
 
-    - name: "Install SCL compiler on CentOS 7"
-      if: ${{ matrix.env.NAME == 'centos-7' }}
-      run: |
-        yum install -y centos-release-scl
-        yum install -y devtoolset-8-gcc devtoolset-8-gcc-c++ devtoolset-8-make
-        rm -f /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
-        rm -f /etc/yum.repos.d/CentOS-SCLo-scl.repo
-
-    # Checkout, but defer pulling LFS objects until we've restored the cache
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
-        lfs: false
+        path: pam_radius
 
-    - name: "Install SCL compiler on CentOS 7"
-      if: ${{ matrix.env.NAME == 'centos-7' }}
-      run: |
-        yum install -y centos-release-scl
-        yum install -y devtoolset-8-gcc devtoolset-8-gcc-c++ devtoolset-8-make
-        rm -f /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
-        rm -f /etc/yum.repos.d/CentOS-SCLo-scl.repo
-
-    - name: "Extra repos for CentOS and Rocky Linux"
-      if: ${{ startsWith(matrix.env.NAME, 'centos-') }}
-      run: |
-        echo '[ltb-project]'                                              >  /etc/yum.repos.d/ltb-project.repo
-        echo 'name=LTB project packages'                                  >> /etc/yum.repos.d/ltb-project.repo
-        echo 'baseurl=https://ltb-project.org/rpm/$releasever/$basearch'  >> /etc/yum.repos.d/ltb-project.repo
-        echo 'enabled=1'                                                  >> /etc/yum.repos.d/ltb-project.repo
-        echo 'gpgcheck=1'                                                 >> /etc/yum.repos.d/ltb-project.repo
-        echo 'gpgkey=https://ltb-project.org/lib/RPM-GPG-KEY-LTB-project' >> /etc/yum.repos.d/ltb-project.repo
-        rpm --import https://ltb-project.org/lib/RPM-GPG-KEY-LTB-project
-        yum install -y epel-release
-
-    - name: "Enable PowerTools on CentOS 8"
-      if: ${{ matrix.env.NAME == 'centos-8' }}
-      run: |
-        yum install -y yum-utils
-        yum config-manager --enable PowerTools || :
-        yum config-manager --enable powertools || :
-
+    # Build Package
     - name: "Install build dependencies"
       run: |
         yum-builddep -y redhat/pam_radius_auth.spec
+      working-directory: pam_radius
 
     - name: "Build RPMs"
       run: |
         [ -r /opt/rh/devtoolset-8/enable ] && source /opt/rh/devtoolset-8/enable || :
         make rpm
+      working-directory: pam_radius
 
     - name: "Collect RPMs"
       run: |
         mkdir -p rpms/
         mv rpmbuild/RPMS/x86_64/*.rpm rpms/
+      working-directory: pam_radius
 
     - name: "Install .rpm packages"
       run: |
         rpm -ivh rpms/pam*.rpm
+      working-directory: pam_radius
 
     - name: "Show infos of the .rpm package"
       run: |
@@ -185,6 +215,7 @@ jobs:
         echo "#######################################################"
         echo "## Show processes"
         ps aux | grep -E "([r]adius|[s]sh|[s]yslog)"
+      working-directory: pam_radius
 
     - name: "Content of /etc/ssh/sshd_config"
       run: |
