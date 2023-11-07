@@ -1973,6 +1973,8 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
 	return retval;
 }
 
+#ifdef PAM_STATIC
+
 /*
  *	Do nothing for account management. This is apparently needed by
  *	some programs.
@@ -1981,8 +1983,6 @@ PAM_EXTERN int pam_sm_acct_mgmt(UNUSED pam_handle_t *pamh, UNUSED int flags, UNU
 {
 	return PAM_SUCCESS;
 }
-
-#ifdef PAM_STATIC
 
 /* static module data */
 struct pam_module _pam_radius_modstruct = {
