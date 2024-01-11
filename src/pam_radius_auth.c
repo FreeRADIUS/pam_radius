@@ -1272,9 +1272,14 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, 
 	CONST struct pam_message *msg[1];
 	struct pam_response *resp = NULL;
 	int retval;
+	char *message_char;
 
-	resp_msg.msg_style = msg_style;
-	memcpy(&resp_msg.msg, message, sizeof(resp_msg.msg));
+        // in some systems we need 'char' for resp_msg.msg instead of 'const char'
+        message_char = malloc(strlen(message)+1);
+        strcpy(message_char,message);
+
+        resp_msg.msg_style = msg_style;
+        resp_msg.msg = message_char;
 
 	msg[0] = &resp_msg;
 
