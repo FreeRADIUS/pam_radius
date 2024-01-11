@@ -1274,7 +1274,7 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, 
 	int retval;
 
 	resp_msg.msg_style = msg_style;
-	memcpy(&resp_msg.msg, message, sizeof(resp_msg.msg));
+	memcpy(&resp_msg.msg, &message, sizeof(resp_msg.msg));
 
 	msg[0] = &resp_msg;
 
