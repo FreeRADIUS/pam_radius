@@ -1581,7 +1581,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			char frameip[sizeof(name) + INET_ADDRSTRLEN];
 			struct in_addr ip_addr;
 
-			ip_addr.s_addr = *(int*) attr_fip->data;
+			memcpy(&ip_addr.s_addr, attr_fip->data, 4);
 
 			snprintf(frameip, sizeof(frameip), "%s=%s", name, inet_ntoa(ip_addr));
 			retval = pam_putenv(pamh, frameip);
