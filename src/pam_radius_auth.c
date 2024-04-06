@@ -1591,6 +1591,31 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 				_pam_log(LOG_DEBUG, "Set PAM environment variable : %s", frameip);
 			}
 		}
+		if ((attr_fip = find_attribute(response, PW_FRAMED_IPV6_PREFIX))) {
+			static const char name[] = "Framed-IPv6-Prefix";
+			char buffer[INET6_ADDRSTRLEN];
+			char frameip[sizeof(name) + INET6_ADDRSTRLEN];
+			struct in6_addr ip6_addr;
+			const char *s;
+
+			memcpy(&ip6_addr.s6_addr, attr_fip->data, 16);
+
+			s = inet_ntop(AF_INET6, (const void *)&ip6_addr, buffer, INET6_ADDRSTRLEN);
+			if (s)
+			{
+				snprintf(frameip, sizeof(frameip), "%s=%s", name, s);
+				retval = pam_putenv(pamh, frameip);
+			}
+			else {
+				retval = PAM_SERVICE_ERR;
+			}
+			if (retval != PAM_SUCCESS) {
+				_pam_log(LOG_ERR, "unable to set PAM environment variable : %s", name);
+			}
+			else {
+				_pam_log(LOG_DEBUG, "Set PAM environment variable : %s", frameip);
+			}
+		}
 
 	} else {
 		retval = PAM_AUTH_ERR;	/* authentication failure */

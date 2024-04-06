@@ -123,6 +123,7 @@ typedef struct pw_auth_hdr {
 #define PW_MANAGEMENT_PRIVILEGE_LEVEL   136     /* integer */
 
 #define	PW_NAS_IPV6_ADDRESS	       	95	/* octets */
+#define	PW_FRAMED_IPV6_PREFIX	       	97	/* octets */
 
 /*
  *	INTEGER TRANSLATIONS
