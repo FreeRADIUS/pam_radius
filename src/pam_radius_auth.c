@@ -1577,15 +1577,16 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 		attribute_t *attr_fip;
 		if ((attr_fip = find_attribute(response, PW_FRAMED_ADDRESS))) {
-			char frameip[100];
+			static const char name[] = "Framed-IP-Address";
+			char frameip[sizeof(name) + INET_ADDRSTRLEN];
 			struct in_addr ip_addr;
 
 			ip_addr.s_addr = *(int*) attr_fip->data;
 
-			snprintf(frameip, sizeof(frameip), "Framed-IP-Address=%s", inet_ntoa(ip_addr));
+			snprintf(frameip, sizeof(frameip), "%s=%s", name, inet_ntoa(ip_addr));
 			retval = pam_putenv(pamh, frameip);
-			if(retval != PAM_SUCCESS) {
-				_pam_log(LOG_ERR, "unable to set PAM environment variable : Framed-IP-Address");
+			if (retval != PAM_SUCCESS) {
+				_pam_log(LOG_ERR, "unable to set PAM environment variable : %s", name);
 			}
 			else {
 				_pam_log(LOG_DEBUG, "Set PAM environment variable : %s", frameip);
