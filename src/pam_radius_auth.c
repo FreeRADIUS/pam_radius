@@ -1174,20 +1174,35 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 						}
 					}
 
-					if (!verify_packet(p, response, request)) {
-						_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
-							 "The shared secret is probably incorrect.", server->hostname);
-						ok = FALSE;
-						break;
-					}
-
 					/*
 					 * Check that the response ID matches the request ID.
 					 */
 					if (response->id != request->id) {
 						_pam_log(LOG_WARNING, "Response packet ID %d does not match the "
-							 "request packet ID %d: verification of packet fails",
+							 "request packet ID %d: ignoring it.",
 							 response->id, request->id);
+						ok = FALSE;
+						break;
+					}
+
+					if ((request->code == PW_ACCOUNTING_REQUEST) && (response->code != PW_ACCOUNTING_RESPONSE)) {
+						_pam_log(LOG_WARNING, "Invalid response to Accounting-Request: ignoring it.",
+							 response->id, request->id);
+						ok = FALSE;
+						break;
+					}
+
+					if ((request->code == PW_AUTHENTICATION_REQUEST) &&
+					    !((response->code == PW_AUTHENTICATION_ACK) || (response->code == PW_AUTHENTICATION_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
+						_pam_log(LOG_WARNING, "Invalid response to Access-Request: ignoring it.",
+							 response->id, request->id);
+						ok = FALSE;
+						break;
+					}
+
+					if (!verify_packet(p, response, request)) {
+						_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
+							 "The shared secret is probably incorrect.", server->hostname);
 						ok = FALSE;
 						break;
 					}
