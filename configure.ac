@@ -471,7 +471,7 @@ if test "x$developer" = "xyes"; then
       -Wno-conversion \
       -Wno-covered-switch-default \
       -Wno-documentation-unknown-command \
-      -Wno-extended-offsetof \
+      -Wno-invalid-offsetof \
       -Wno-gnu-empty-initializer \
       -Wno-gnu-statement-expression \
       -Wno-gnu-zero-variadic-macro-arguments \

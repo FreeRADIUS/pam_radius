@@ -6527,7 +6527,7 @@ printf "%s\n" "$ax_cv_cc_weverything_flag" >&6; }
       -Wno-conversion \
       -Wno-covered-switch-default \
       -Wno-documentation-unknown-command \
-      -Wno-extended-offsetof \
+      -Wno-invalid-offsetof \
       -Wno-gnu-empty-initializer \
       -Wno-gnu-statement-expression \
       -Wno-gnu-zero-variadic-macro-arguments \

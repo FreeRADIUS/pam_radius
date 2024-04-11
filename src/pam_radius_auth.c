@@ -246,7 +246,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
  * @param[in] data			Associate some data with the handle pamh
  * @param[in] error_status	used to indicate to the module the sort of action it
  */
-static void _int_free(UNUSED pam_handle_t *pamh, UNUSED void *data, UNUSED int error_status)
+static void _int_free(UNUSED pam_handle_t *pamh, void *data, UNUSED int error_status)
 {
 	free(data);
 }
@@ -1750,7 +1750,6 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, CON
 
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { return retval; }
-#define MAX_PASSWD_TRIES 3
 
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST char **argv)
 {
