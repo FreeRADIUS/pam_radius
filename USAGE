@@ -80,10 +80,6 @@ localifdown    - This option tells pam_radius to return PAM_IGNORE instead
                  network unavailability.  PAM_IGNORE tells the pam stack
                  to continue down the stack regardless of the control flag.
 
-accounting_bug - When used, the accounting response vector is NOT
-                 validated.  This option will probably only be necessary
-                 on REALLY OLD (i.e. Livingston 1.16) servers.
-
 prompt=string  - Specifies the prompt, without the ': ', that PAM should
                  display when prompting for the password. This is useful
                  when using hardware tokens as part of multi-factor

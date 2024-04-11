@@ -155,8 +155,6 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			} else {
 				conf->client_id = (arg + 10); /* point to the client-id */
 			}
-		} else if (!strcmp(arg, "accounting_bug")) {
-			conf->accounting_bug = TRUE;
 
 		} else if (!strcmp(arg, "ruser")) {
 			ctrl |= PAM_RUSER_ARG;
@@ -215,7 +213,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 #define print_string(cond) (cond) ? cond : ""
 
 		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
-							"localifdown=%s client_id='%s' accounting_bug=%s ruser=%s prompt='%s' force_prompt=%s "\
+							"localifdown=%s client_id='%s' ruser=%s prompt='%s' force_prompt=%s "\
 							"prompt_attribute=%s max_challenge=%d privilege_level=%s",
 				conf->conf_file,
 				print_bool(ctrl & PAM_USE_FIRST_PASS),
@@ -224,7 +222,6 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				conf->retries,
 				print_bool(conf->localifdown),
 				print_string(conf->client_id),
-				print_bool(conf->accounting_bug),
 				print_bool(ctrl & PAM_RUSER_ARG),
 				conf->prompt,
 				print_bool(conf->force_prompt),
@@ -1155,19 +1152,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					/* Check if we have the data OK. We should also check request->id */
 					if (password) {
 						if (old_password) {
-#ifdef LIVINGSTON_PASSWORD_VERIFY_BUG_FIXED
 							p = old_password;	/* what it should be */
-#else
-							p = "";			/* what it really is */
-#endif
-						}
-					/*
-					 * RFC 2139 p.6 says not do do this, but the Livingston 1.16
-					 * server disagrees.	If the user says he wants the bug, give in.
-					 */
-					} else {		/* authentication request */
-						if (conf->accounting_bug) {
-							p = "";
 						}
 					}
 

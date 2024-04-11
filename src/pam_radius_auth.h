@@ -178,7 +178,6 @@ typedef struct radius_conf_t {
 	int use_ipv6;
 	int localifdown;
 	CONST char *client_id;
-	int accounting_bug;
 	int force_prompt;
 	int max_challenge;
 	int sockfd;
