@@ -61,9 +61,6 @@ typedef struct pw_auth_hdr {
 #define	PW_ACCOUNTING_REQUEST		4
 #define	PW_ACCOUNTING_RESPONSE		5
 #define	PW_ACCOUNTING_STATUS		6
-#define PW_PASSWORD_REQUEST		7
-#define PW_PASSWORD_ACK			8
-#define PW_PASSWORD_REJECT		9
 #define	PW_ACCOUNTING_MESSAGE		10
 #define PW_ACCESS_CHALLENGE		11
 
