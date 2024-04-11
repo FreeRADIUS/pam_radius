@@ -55,9 +55,9 @@ typedef struct pw_auth_hdr {
 #define PW_TYPE_DATE			3
 
 
-#define	PW_AUTHENTICATION_REQUEST	1
-#define	PW_AUTHENTICATION_ACK		2
-#define	PW_AUTHENTICATION_REJECT	3
+#define	PW_ACCESS_REQUEST		1
+#define	PW_ACCESS_ACCEPT		2
+#define	PW_ACCESS_REJECT		3
 #define	PW_ACCOUNTING_REQUEST		4
 #define	PW_ACCOUNTING_RESPONSE		5
 #define	PW_ACCOUNTING_STATUS		6
@@ -68,7 +68,7 @@ typedef struct pw_auth_hdr {
 #define PW_ACCESS_CHALLENGE		11
 
 #define	PW_USER_NAME			1
-#define	PW_PASSWORD			2
+#define	PW_USER_PASSWORD       		2
 #define	PW_CHAP_PASSWORD		3
 #define	PW_NAS_IP_ADDRESS	       	4
 #define	PW_NAS_PORT_ID			5

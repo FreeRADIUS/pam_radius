@@ -54,9 +54,9 @@ static CONST char pam_module_version[] = PAM_RADIUS_VERSION_STRING
  */
 static const char *get_packet_name(int code) {
 	switch(code) {
-		case PW_AUTHENTICATION_REQUEST: return "Access-Request";
-		case PW_AUTHENTICATION_ACK: return "Access-Accept";
-		case PW_AUTHENTICATION_REJECT: return "Access-Reject";
+		case PW_ACCESS_REQUEST: return "Access-Request";
+		case PW_ACCESS_ACCEPT: return "Access-Accept";
+		case PW_ACCESS_REJECT: return "Access-Reject";
 		case PW_ACCOUNTING_REQUEST: return "Accounting-Request";
 		case PW_ACCOUNTING_RESPONSE: return "Accounting-Response";
 		case PW_ACCOUNTING_STATUS: return "Accounting-Status";
@@ -568,7 +568,7 @@ static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {
  * Add a RADIUS password attribute to the packet.	Some magic is done here.
  *
  * If it's an PW_OLD_PASSWORD attribute, it's encrypted using the encrypted
- * PW_PASSWORD attribute as the initialization vector.
+ * PW_USER_PASSWORD attribute as the initialization vector.
  *
  * If the password attribute already exists, it's over-written.	This allows
  * us to simply call add_password to update the password for different
@@ -598,9 +598,9 @@ static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, 
 		length &= ~(AUTH_PASS_LEN - 1);		/* chop it off */
 	}						/* 16*N maps to itself */
 
-	attr = find_attribute(request, PW_PASSWORD);
+	attr = find_attribute(request, PW_USER_PASSWORD);
 
-	if (type == PW_PASSWORD) {
+	if (type == PW_USER_PASSWORD) {
 		vector = request->vector;
 	} else {
 		vector = attr->data;			    /* attr CANNOT be NULL here. */
@@ -951,13 +951,13 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 	 *	Add a password, if given.
 	 */
 	if (password) {
-		add_password(request, PW_PASSWORD, password, conf->server->secret);
+		add_password(request, PW_USER_PASSWORD, password, conf->server->secret);
 
 		/*
 		 *	Add a NULL password to non-accounting requests.
 		 */
 	} else if (request->code != PW_ACCOUNTING_REQUEST) {
-		add_password(request, PW_PASSWORD, "", conf->server->secret);
+		add_password(request, PW_USER_PASSWORD, "", conf->server->secret);
 	}
 
 	/* Perhaps add NAS IP Address (and v6 version) */
@@ -1192,8 +1192,8 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 						break;
 					}
 
-					if ((request->code == PW_AUTHENTICATION_REQUEST) &&
-					    !((response->code == PW_AUTHENTICATION_ACK) || (response->code == PW_AUTHENTICATION_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
+					if ((request->code == PW_ACCESS_REQUEST) &&
+					    !((response->code == PW_ACCESS_ACCEPT) || (response->code == PW_ACCESS_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
 						_pam_log(LOG_WARNING, "Invalid response to Access-Request: ignoring it.",
 							 response->id, request->id);
 						ok = FALSE;
@@ -1241,10 +1241,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				if (password) {
 					get_random_vector(request->vector);
 					if (old_password) {	/* password change request */
-						add_password(request, PW_PASSWORD, password, old_password);
+						add_password(request, PW_USER_PASSWORD, password, old_password);
 						add_password(request, PW_OLD_PASSWORD, old_password, old_password);
 					} else {		/* authentication request */
-						add_password(request, PW_PASSWORD, password, server->secret);
+						add_password(request, PW_USER_PASSWORD, password, server->secret);
 					}
 				}
 			}
@@ -1406,7 +1406,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { goto do_next; }
 
 	/* build and initialize the RADIUS packet */
-	request->code = PW_AUTHENTICATION_REQUEST;
+	request->code = PW_ACCESS_REQUEST;
 	get_random_vector(request->vector);
 	request->id = request->vector[0]; /* this should be evenly distributed */
 
@@ -1515,7 +1515,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 		/* now that we've got a response, build a new radius packet */
 		build_radius_packet(request, user, resp2challenge, &config);
-		/* request->code is already PW_AUTHENTICATION_REQUEST */
+		/* request->code is already PW_ACCESS_REQUEST */
 		request->id++;		/* one up from the request */
 
 		if (rhost) {
@@ -1544,7 +1544,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	}
 
 	/* Whew! Done the password checks, look for an authentication acknowledge */
-	if (response->code == PW_AUTHENTICATION_ACK) {
+	if (response->code == PW_ACCESS_ACCEPT) {
 		retval = PAM_SUCCESS;
 
 		/* Read Management-Privilege-Level attribute from the response */
@@ -1842,7 +1842,7 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
 		 */
 
 		/* build and initialize the access request RADIUS packet */
-		request->code = PW_AUTHENTICATION_REQUEST;
+		request->code = PW_ACCESS_REQUEST;
 		get_random_vector(request->vector);
 		request->id = request->vector[0]; /* this should be evenly distributed */
 
@@ -1853,7 +1853,7 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST c
 		PAM_FAIL_CHECK;
 
 		/* oops! They don't have the right password.	Complain and die. */
-		if (response->code != PW_AUTHENTICATION_ACK) {
+		if (response->code != PW_ACCESS_ACCEPT) {
 			_pam_forget(password);
 			retval = PAM_PERM_DENIED;
 			goto error;
