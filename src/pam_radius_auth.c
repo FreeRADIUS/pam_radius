@@ -559,10 +559,7 @@ static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {
 }
 
 /*
- * Add a RADIUS password attribute to the packet.	Some magic is done here.
- *
- * If it's an PW_OLD_PASSWORD attribute, it's encrypted using the encrypted
- * PW_USER_PASSWORD attribute as the initialization vector.
+ * Add a RADIUS password attribute to the packet.
  *
  * If the password attribute already exists, it's over-written.	This allows
  * us to simply call add_password to update the password for different
@@ -593,12 +590,7 @@ static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, 
 	}						/* 16*N maps to itself */
 
 	attr = find_attribute(request, PW_USER_PASSWORD);
-
-	if (type == PW_USER_PASSWORD) {
-		vector = request->vector;
-	} else {
-		vector = attr->data;			    /* attr CANNOT be NULL here. */
-	}
+	vector = request->vector;
 
 	/* ************************************************************ */
 	/* encrypt the password */
@@ -618,14 +610,10 @@ static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, 
 		xor(&hashed[i * AUTH_PASS_LEN], misc, AUTH_PASS_LEN);
 	}
 
-	if (type == PW_OLD_PASSWORD) {
-		attr = find_attribute(request, PW_OLD_PASSWORD);
-	}
-
 	if (!attr) {
 		add_attribute(request, type, hashed, length);
 	} else {
-		memcpy(attr->data, hashed, length); /* overwrite the packet */
+		memcpy(attr->data, hashed, length); /* overwrite the old value of the attribute */
 	}
 }
 
@@ -976,7 +964,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
  * Send a packet and get the response
  */
 static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *response,
-		       char *password, char *old_password, int tries)
+		       char *password, int tries)
 {
 	int total_length;
 #ifdef HAVE_POLL_H
@@ -1139,21 +1127,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 				/* there's data, see if it's valid */
 				} else {
-					CONST char *p = server->secret;
-
 					if ((ntohs(response->length) != total_length) ||
 					    (ntohs(response->length) > BUFFER_SIZE)) {
 						_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
 						 	 server->hostname);
 						ok = FALSE;
 						break;
-					}
-
-					/* Check if we have the data OK. We should also check request->id */
-					if (password) {
-						if (old_password) {
-							p = old_password;	/* what it should be */
-						}
 					}
 
 					/*
@@ -1182,7 +1161,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 						break;
 					}
 
-					if (!verify_packet(p, response, request)) {
+					if (!verify_packet(server->secret, response, request)) {
 						_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
 							 "The shared secret is probably incorrect.", server->hostname);
 						ok = FALSE;
@@ -1222,12 +1201,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				/* update passwords, as appropriate */
 				if (password) {
 					get_random_vector(request->vector);
-					if (old_password) {	/* password change request */
-						add_password(request, PW_USER_PASSWORD, password, old_password);
-						add_password(request, PW_OLD_PASSWORD, old_password, old_password);
-					} else {		/* authentication request */
-						add_password(request, PW_USER_PASSWORD, password, server->secret);
-					}
+					add_password(request, PW_USER_PASSWORD, password, server->secret);
 				}
 			}
 			continue;
@@ -1439,7 +1413,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d (%s)", request->code, get_packet_name(request->code));
 
-	retval = talk_radius(&config, request, response, password, NULL, config.retries + 1);
+	retval = talk_radius(&config, request, response, password, config.retries + 1);
 	PAM_FAIL_CHECK;
 
 	DPRINT(LOG_DEBUG, "Got RADIUS response code %d (%s)", response->code, get_packet_name(response->code));
@@ -1507,7 +1481,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		/* copy the state over from the servers response */
 		add_attribute(request, PW_STATE, a_state->data, a_state->length - 2);
 
-		retval = talk_radius(&config, request, response, resp2challenge, NULL, 1);
+		retval = talk_radius(&config, request, response, resp2challenge, 1);
 		PAM_FAIL_CHECK;
 
 		DPRINT(LOG_DEBUG, "Got response to challenge code %d", response->code);
@@ -1714,7 +1688,7 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
-	retval = talk_radius(&config, request, response, NULL, NULL, 1);
+	retval = talk_radius(&config, request, response, NULL, 1);
 	PAM_FAIL_CHECK;
 
 	/* oops! They don't have the right password.	Complain and die. */

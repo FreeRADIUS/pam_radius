@@ -80,7 +80,6 @@ typedef struct pw_auth_hdr {
 #define	PW_LOGIN_HOST			14
 #define	PW_LOGIN_SERVICE		15
 #define	PW_LOGIN_TCP_PORT		16
-#define PW_OLD_PASSWORD			17
 #define PW_REPLY_MESSAGE		18
 #define PW_CALLBACK_NUMBER     		19
 #define PW_CALLBACK_ID			20
