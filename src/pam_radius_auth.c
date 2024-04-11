@@ -1592,7 +1592,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			char frameip[100];
 			struct in_addr ip_addr;
 
-			ip_addr.s_addr = *(int*) attr_fip->data;
+			memcpy(&ip_addr.s_addr, attr_fip->data, 4);
 
 			snprintf(frameip, sizeof(frameip), "Framed-IP-Address=%s", inet_ntoa(ip_addr));
 			retval = pam_putenv(pamh, frameip);
