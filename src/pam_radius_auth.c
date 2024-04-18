@@ -354,6 +354,26 @@ static int host2server(int debug, radius_server_t *server)
 	return retval;
 }
 
+static int ipaddr_eq(struct sockaddr_storage *addr_A, struct sockaddr_storage *addr_B)
+{
+	if (addr_A->ss_family != addr_B->ss_family) {
+		return FALSE;
+	}
+	switch(addr_A->ss_family){
+		case AF_INET:
+			return ((struct sockaddr_in *)addr_A)->sin_addr.s_addr == ((struct sockaddr_in *)addr_B)->sin_addr.s_addr;
+		case AF_INET6:
+			return memcmp(
+				((struct sockaddr_in6 *)addr_A)->sin6_addr.s6_addr,
+				((struct sockaddr_in6 *)addr_B)->sin6_addr.s6_addr,
+				16
+			) == 0;
+		default:
+			_pam_log(LOG_ERR, "Unsupported address family %s.", addr_A->ss_family);
+			return FALSE;
+	}
+}
+
 /** Do XOR of two buffers.
  */
 static uint8_t * xor(uint8_t *p, uint8_t *q, int length)
@@ -982,6 +1002,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 	int retval;
 	int sockfd;
 	socklen_t salen;
+	struct sockaddr_storage response_addr;
+	socklen_t response_addr_len = sizeof(struct sockaddr_storage);
+	char response_addr_str[INET_ADDRSTRLEN];
 
 	/* ************************************************************ */
 	/* Now that we're done building the request, we can send it */
@@ -1117,7 +1140,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 				/* try to receive some data */
 				if ((total_length = recvfrom(sockfd, (void *) response, BUFFER_SIZE,
-							     0, NULL, NULL)) < 0) {
+							     0, (struct sockaddr *) &response_addr, &response_addr_len)) < 0) {
 					char error_string[BUFFER_SIZE];
 					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
@@ -1127,6 +1150,16 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 				/* there's data, see if it's valid */
 				} else {
+					if (!ipaddr_eq(&response_addr, &(server->ip_storage))) {
+						retval = getnameinfo((struct sockaddr *)&response_addr, response_addr_len,
+								response_addr_str, INET_ADDRSTRLEN,
+								NULL, 0, NI_NUMERICHOST);
+						if(retval != 0)
+							_pam_log(LOG_DEBUG, "DEBUG: getnameinfo(%s) returned %d.\n", response_addr_str, retval);
+						_pam_log(LOG_ERR, "packet received from wrong source %s: ignoring it.", response_addr_str);
+						continue;
+					}
+
 					if ((ntohs(response->length) != total_length) ||
 					    (ntohs(response->length) > BUFFER_SIZE)) {
 						_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
