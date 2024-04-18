@@ -354,12 +354,18 @@ static int host2server(int debug, radius_server_t *server)
 	return retval;
 }
 
-static int ipaddr_eq(struct sockaddr_storage *addr_A, struct sockaddr_storage *addr_B)
+/** Compare two sockaddr for equality
+ * @param[in]  addr_A    First address
+ * @param[in]  addr_B    Second address
+ * @return
+ *  - return TRUE if address family, and address match, FALSE otherwise.
+ */
+static int ipaddr_eq(struct sockaddr *addr_A, struct sockaddr *addr_B)
 {
-	if (addr_A->ss_family != addr_B->ss_family) {
+	if (addr_A->sa_family != addr_B->sa_family) {
 		return FALSE;
 	}
-	switch(addr_A->ss_family){
+	switch(addr_A->sa_family){
 		case AF_INET:
 			return ((struct sockaddr_in *)addr_A)->sin_addr.s_addr == ((struct sockaddr_in *)addr_B)->sin_addr.s_addr;
 		case AF_INET6:
@@ -369,7 +375,7 @@ static int ipaddr_eq(struct sockaddr_storage *addr_A, struct sockaddr_storage *a
 				16
 			) == 0;
 		default:
-			_pam_log(LOG_ERR, "Unsupported address family %s.", addr_A->ss_family);
+			_pam_log(LOG_ERR, "Unsupported address family %s.", addr_A->sa_family);
 			return FALSE;
 	}
 }
@@ -1150,7 +1156,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 				/* there's data, see if it's valid */
 				} else {
-					if (!ipaddr_eq(&response_addr, &(server->ip_storage))) {
+					if (!ipaddr_eq((struct sockaddr *) &response_addr, server->ip)) {
 						retval = getnameinfo((struct sockaddr *)&response_addr, response_addr_len,
 								response_addr_str, INET_ADDRSTRLEN,
 								NULL, 0, NI_NUMERICHOST);
