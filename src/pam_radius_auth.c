@@ -1106,8 +1106,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				}
 				ok = FALSE;
 				break;			/* exit from the loop */
-			} else if (rcode < 0) {
+			}
 
+			if (rcode < 0) {
 				/* poll returned an error */
 				if (errno == EINTR) {	/* we were interrupted */
 					time(&now);
@@ -1139,7 +1140,6 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #else
 			} else if (FD_ISSET(sockfd, &set)) {
 #endif
-
 				/* try to receive some data */
 				salen = sizeof(sockaddr_storage);
 
@@ -1149,57 +1149,51 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
 					 	 server->hostname, error_string);
-					ok = FALSE;
-					break;
+					continue;
+				}
 
-				} else {
-					/*
-					 *	Ignore packets from the wrong source iP
-					 */
-					if (!ipaddr_cmp(&sockaddr_storage, &server->ip_storage)) {
-						_pam_log(LOG_ERR, "Received data from unexpected source - ignoring it");
-					}
+				/*
+				 *	Ignore packets from the wrong source iP
+				 */
+				if (!ipaddr_cmp(&sockaddr_storage, &server->ip_storage)) {
+					_pam_log(LOG_ERR, "Received data from unexpected source - ignoring it");
+					continue;
+				}
 
-					if ((ntohs(response->length) != total_length) ||
-					    (ntohs(response->length) > BUFFER_SIZE)) {
-						_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
-						 	 server->hostname);
-						ok = FALSE;
-						break;
-					}
+				if ((ntohs(response->length) != total_length) ||
+				    (ntohs(response->length) > BUFFER_SIZE)) {
+					_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
+						 server->hostname);
+					continue;
+				}
 
-					/*
-					 * Check that the response ID matches the request ID.
-					 */
-					if (response->id != request->id) {
-						_pam_log(LOG_WARNING, "Response packet ID %d does not match the "
-							 "request packet ID %d: ignoring it.",
-							 response->id, request->id);
-						ok = FALSE;
-						break;
-					}
+				/*
+				 * Check that the response ID matches the request ID.
+				 */
+				if (response->id != request->id) {
+					_pam_log(LOG_WARNING, "Response packet ID %d does not match the "
+						 "request packet ID %d: ignoring it.",
+						 response->id, request->id);
+					continue;
+				}
 
-					if ((request->code == PW_ACCOUNTING_REQUEST) && (response->code != PW_ACCOUNTING_RESPONSE)) {
-						_pam_log(LOG_WARNING, "Invalid response to Accounting-Request: ignoring it.",
-							 response->id, request->id);
-						ok = FALSE;
-						break;
-					}
+				if ((request->code == PW_ACCOUNTING_REQUEST) && (response->code != PW_ACCOUNTING_RESPONSE)) {
+					_pam_log(LOG_WARNING, "Invalid response to Accounting-Request: ignoring it.",
+						 response->id, request->id);
+					continue;
+				}
 
-					if ((request->code == PW_ACCESS_REQUEST) &&
-					    !((response->code == PW_ACCESS_ACCEPT) || (response->code == PW_ACCESS_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
-						_pam_log(LOG_WARNING, "Invalid response to Access-Request: ignoring it.",
-							 response->id, request->id);
-						ok = FALSE;
-						break;
-					}
+				if ((request->code == PW_ACCESS_REQUEST) &&
+				    !((response->code == PW_ACCESS_ACCEPT) || (response->code == PW_ACCESS_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
+					_pam_log(LOG_WARNING, "Invalid response to Access-Request: ignoring it.",
+						 response->id, request->id);
+					continue;
+				}
 
-					if (!verify_packet(server->secret, response, request)) {
-						_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
-							 "The shared secret is probably incorrect.", server->hostname);
-						ok = FALSE;
-						break;
-					}
+				if (!verify_packet(server->secret, response, request)) {
+					_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
+						 "The shared secret is probably incorrect.", server->hostname);
+					continue;
 				}
 
 				/*
