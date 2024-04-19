@@ -959,6 +959,31 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 	add_int_attribute(request, PW_NAS_PORT_TYPE, PW_NAS_PORT_TYPE_VIRTUAL);
 }
 
+static int ipaddr_cmp(struct sockaddr_storage const *a, struct sockaddr_storage const *b)
+{
+	if (a->ss_family != b->ss_family) {
+		_pam_log(LOG_ERR, "RADIUS packet from invalid source - ignoring it");
+		return 0;
+	}
+
+	switch (a->ss_family) {
+	case AF_INET:
+		return (memcmp(((struct sockaddr_in const *) a)->sin_addr.s_addr,
+			       ((struct sockaddr_in const *) b)->sin_addr.s_addr,
+			       sizeof(((struct sockaddr_in const *) a)->sin_addr.s_addr)) == 0);
+
+	case AF_INET6:
+		return (memcmp(((struct sockaddr_in6 const *) a)->sin6_addr.s6_addr,
+			       ((struct sockaddr_in6 const *) b)->sin6_addr.s6_addr,
+			       sizeof(((struct sockaddr_in6 const *) a)->sin6_addr.s6_addr)) == 0);
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 /*
  * Talk RADIUS to a server.
  * Send a packet and get the response
@@ -982,7 +1007,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 	int retval;
 	int sockfd;
 	socklen_t salen;
-
+	struct sockaddr_storage sockaddr_storage;
 	/* ************************************************************ */
 	/* Now that we're done building the request, we can send it */
 
@@ -1116,8 +1141,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #endif
 
 				/* try to receive some data */
+				salen = sizeof(sockaddr_storage);
+
 				if ((total_length = recvfrom(sockfd, (void *) response, BUFFER_SIZE,
-							     0, NULL, NULL)) < 0) {
+							     0, (struct sockaddr *) &sockaddr_storage, &salen)) < 0) {
 					char error_string[BUFFER_SIZE];
 					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
@@ -1125,8 +1152,14 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					ok = FALSE;
 					break;
 
-				/* there's data, see if it's valid */
 				} else {
+					/*
+					 *	Ignore packets from the wrong source iP
+					 */
+					if (!ipaddr_cmp(&sockaddr_storage, &server->ip_storage)) {
+						_pam_log(LOG_ERR, "Received data from unexpected source - ignoring it");
+					}
+
 					if ((ntohs(response->length) != total_length) ||
 					    (ntohs(response->length) > BUFFER_SIZE)) {
 						_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
