@@ -7,3 +7,5 @@ pam_radius_auth 2.0.1 Wed 10 Nov 2021 12:00:00 EDT urgency=low
 
 	Bug fixes
 	* All known and reported bugs have been fixed.
+	* Ignore packets from unknown sources.  Based on patches
+	  from Alex Malowany.
