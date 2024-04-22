@@ -968,13 +968,13 @@ static int ipaddr_cmp(struct sockaddr_storage const *a, struct sockaddr_storage 
 
 	switch (a->ss_family) {
 	case AF_INET:
-		return (memcmp(((struct sockaddr_in const *) a)->sin_addr.s_addr,
-			       ((struct sockaddr_in const *) b)->sin_addr.s_addr,
+		return (memcmp(&((struct sockaddr_in const *) a)->sin_addr.s_addr,
+			       &((struct sockaddr_in const *) b)->sin_addr.s_addr,
 			       sizeof(((struct sockaddr_in const *) a)->sin_addr.s_addr)) == 0);
 
 	case AF_INET6:
-		return (memcmp(((struct sockaddr_in6 const *) a)->sin6_addr.s6_addr,
-			       ((struct sockaddr_in6 const *) b)->sin6_addr.s6_addr,
+		return (memcmp(&((struct sockaddr_in6 const *) a)->sin6_addr.s6_addr,
+			       &((struct sockaddr_in6 const *) b)->sin6_addr.s6_addr,
 			       sizeof(((struct sockaddr_in6 const *) a)->sin6_addr.s6_addr)) == 0);
 
 	default:
