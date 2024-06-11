@@ -416,10 +416,7 @@ static void get_random_vector(uint8_t *vector)
 }
 
 /**
- * RFC 2139 says to do generate the accounting request vector this way.
- * However, the Livingston 1.16 server doesn't check it.	The Cistron
- * server (http://home.cistron.nl/~miquels/radius/) does, and this code
- * seems to work with it.	It also works with Funk's Steel-Belted RADIUS.
+ *	Follow RFC 2866 for Accounting-Request vector.
  */
 static void get_accounting_vector(AUTH_HDR *request, radius_server_t *server)
 {
@@ -443,7 +440,6 @@ static int verify_packet(CONST char *secret, AUTH_HDR *response, AUTH_HDR *reque
 	MD5_CTX my_md5;
 	uint8_t calculated[AUTH_VECTOR_LEN];
 	uint8_t reply[AUTH_VECTOR_LEN];
-
 	/*
 	 * We could dispense with the memcpy, and do MD5's of the packet
 	 * + vector piece by piece.	This is easier understand, and maybe faster.
@@ -454,18 +450,7 @@ static int verify_packet(CONST char *secret, AUTH_HDR *response, AUTH_HDR *reque
 	/* MD5(response packet header + vector + response packet data + secret) */
 	MD5Init(&my_md5);
 	MD5Update(&my_md5, (uint8_t *) response, ntohs(response->length));
-
-	/*
-	 * This next bit is necessary because of a bug in the original Livingston
-	 * RADIUS server.	The authentication vector is *supposed* to be MD5'd
-	 * with the old password (as the secret) for password changes.
-	 * However, the old password isn't used.	The "authentication" vector
-	 * for the server reply packet is simply the MD5 of the reply packet.
-	 * Odd, the code is 99% there, but the old password is never copied
-	 * to the secret!
-	 */
-	if (*secret) MD5Update(&my_md5, (CONST uint8_t *) secret, strlen(secret));
-
+	MD5Update(&my_md5, (CONST uint8_t *) secret, strlen(secret));
 	MD5Final(calculated, &my_md5);			/* set the final vector */
 
 	/* Did he use the same random vector + shared secret? */
