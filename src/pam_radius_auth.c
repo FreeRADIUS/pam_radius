@@ -953,10 +953,25 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 	hostname[0] = '\0';
 	gethostname(hostname, sizeof(hostname) - 1);
 
-	request->length = htons(AUTH_HDR_LEN);
+	/*
+	 *	For Access-Request, create a random authentication
+	 *	vector, and always add a Message-Authenticator
+	 *	attribute.
+	 */
+	if (request->code == PW_ACCESS_REQUEST) {
+              uint8_t *attr = (uint8_t *) request + AUTH_HDR_LEN;
 
-	if (password) {		/* make a random authentication req vector */
-		get_random_vector(request->vector);
+	      get_random_vector(request->vector);
+
+              attr[0] = PW_MESSAGE_AUTHENTICATOR;
+              attr[1] = 18;
+              memset(attr + 2, 0, AUTH_VECTOR_LEN);
+	      conf->message_authenticator = attr + 2;
+
+              request->length = htons(AUTH_HDR_LEN + 18);
+	} else {
+		request->length = htons(AUTH_HDR_LEN);
+		conf->message_authenticator = NULL;
 	}
 
 	add_attribute(request, PW_USER_NAME, (CONST uint8_t *) user, strlen(user));
@@ -1068,7 +1083,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			goto next;		/* skip to the next server */
 		}
 
-		if (!password) { 		/* make an RFC 2139 p6 request authenticator */
+		if (request->code == PW_ACCESS_REQUEST) {
+			hmac_md5(conf->message_authenticator, (uint8_t *) request, ntohs(request->length),
+				 (const uint8_t *) server->secret, strlen(server->secret));
+
+		} else {
+			/* make an RFC 2139 p6 request authenticator */
 			get_accounting_vector(request, server);
 		}
 

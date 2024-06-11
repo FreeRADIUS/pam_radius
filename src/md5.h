@@ -39,6 +39,7 @@
 #define MD5Transform  pra_MD5Transform
 
 #include <inttypes.h>
+#include <stdint.h>
 
 struct MD5Context {
 	uint32_t buf[4];

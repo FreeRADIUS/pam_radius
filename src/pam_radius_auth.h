@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
 #include <sys/param.h>
@@ -187,6 +188,7 @@ typedef struct radius_conf_t {
 	char prompt[MAXPROMPT];
 	int prompt_attribute;
 	int privilege_level;
+	uint8_t *message_authenticator;
 } radius_conf_t;
 
 #endif /* PAM_RADIUS_H */
