@@ -51,6 +51,9 @@ void MD5Update(struct MD5Context *, unsigned const char *, unsigned);
 void MD5Final(unsigned char digest[16], struct MD5Context *);
 void MD5Transform(uint32_t buf[4], uint32_t const in[16]);
 
+void hmac_md5(uint8_t digest[16], uint8_t const *text, size_t text_len,
+	      uint8_t const *key, size_t key_len);
+
 /*
  * This is needed to make RSAREF happy on some MS-DOS compilers.
  */
