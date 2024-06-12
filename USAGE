@@ -101,5 +101,8 @@ prompt_attribute - Enable honoring of Prompt attribute sent from server for
                    input. Without this option all user input during 
                    challenge-response will be echoed. See RFC2869 Section 5.10
 
+require_message_authenticator - Discard Access-Accept, Access-Challenge, and
+		Access-Reject packets which do not contain Message-Authenticator.
+
 ---------------------------------------------------------------------------
 

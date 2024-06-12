@@ -197,6 +197,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		} else if (!strcmp(arg, "privilege_level")) {
 			conf->privilege_level = TRUE;
 
+		} else if (!strcmp(arg, "require_message_authenticator")) {
+			conf->require_message_authenticator = TRUE;
+
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", arg);
 		}
@@ -435,7 +438,7 @@ static void get_accounting_vector(AUTH_HDR *request, radius_server_t *server)
 /**
  * Verify the response from the server
  */
-static int verify_packet(radius_server_t *server, AUTH_HDR *response, AUTH_HDR *request)
+static int verify_packet(radius_server_t *server, AUTH_HDR *response, AUTH_HDR *request, radius_conf_t *conf)
 {
 	MD5_CTX my_md5;
 	uint8_t calculated[AUTH_VECTOR_LEN];
@@ -468,6 +471,10 @@ static int verify_packet(radius_server_t *server, AUTH_HDR *response, AUTH_HDR *
 		}
 
 		attr += attr[1];
+	}
+
+	if ((request->code == PW_ACCESS_REQUEST) && conf->require_message_authenticator && !message_authenticator) {
+		return FALSE;
 	}
 
 	/*
@@ -1242,7 +1249,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					continue;
 				}
 
-				if (!verify_packet(server, response, request)) {
+				if (!verify_packet(server, response, request, conf)) {
 					_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
 						 "The shared secret is probably incorrect.", server->hostname);
 					continue;
