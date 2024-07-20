@@ -217,7 +217,8 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' ruser=%s prompt='%s' force_prompt=%s "\
-							"prompt_attribute=%s max_challenge=%d privilege_level=%s",
+							"prompt_attribute=%s max_challenge=%d privilege_level=%s "\
+							"require_message_authenticator=%s",
 				conf->conf_file,
 				print_bool(ctrl & PAM_USE_FIRST_PASS),
 				print_bool(ctrl & PAM_TRY_FIRST_PASS),
@@ -230,7 +231,8 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				print_bool(conf->force_prompt),
 				print_bool(conf->prompt_attribute),
 				conf->max_challenge,
-				print_bool(conf->privilege_level)
+				print_bool(conf->privilege_level),
+				print_bool(conf->require_message_authenticator)
 		);
 	}
 
