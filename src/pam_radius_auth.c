@@ -1093,6 +1093,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		}
 
 		if (request->code == PW_ACCESS_REQUEST) {
+			memset(conf->message_authenticator, 0, AUTH_VECTOR_LEN);
 			hmac_md5(conf->message_authenticator, (uint8_t *) request, ntohs(request->length),
 				 (const uint8_t *) server->secret, strlen(server->secret));
 
