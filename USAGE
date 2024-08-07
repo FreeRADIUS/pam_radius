@@ -18,9 +18,9 @@ debug          - print out extensive debugging information via pam_log.
                  syslog(), and go to /var/log/messages.  Depending on
                  your host operating system, the log messages may be
                  elsewhere.
-		 You should generally use the debug option when first
-		 trying to install the module, as it will help
-		 enormously in tracking down problems.
+                 You should generally use the debug option when first
+                 trying to install the module, as it will help
+                 enormously in tracking down problems.
 
 use_first_pass - Instead of prompting the user for a password, retrieve
                  the password from the previous authentication module.
@@ -62,9 +62,9 @@ client_id=bar  - send a NAS-Identifier RADIUS attribute with string
                  This feature may be disabled by using 'client_id='.
                  i.e. A blank client ID.
 
-retry = #      - How many times to re-send a packet if there is no
-		 response.  Once the retry count has been reached,
-		 the module fails, and PAM continues to the next module.
+retry=#        - How many times to re-send a packet if there is no
+                 response.  Once the retry count has been reached,
+                 the module fails, and PAM continues to the next module.
 
 use_authtok    - force the use of a previously entered password.
                  This is  needed for pluggable password strength checking
@@ -102,7 +102,15 @@ prompt_attribute - Enable honoring of Prompt attribute sent from server for
                    challenge-response will be echoed. See RFC2869 Section 5.10
 
 require_message_authenticator - Discard Access-Accept, Access-Challenge, and
-		Access-Reject packets which do not contain Message-Authenticator.
+                 Access-Reject packets which do not contain Message-Authenticator.
+
+ipv4=no         - Disable use of IPv4
+
+ipv6=no         - Disable use of IPv6
+
+privilege_level - If set, the value of the Management-Privilege-Level RADIUS
+                  attribute from the Access-Accept response will be put in to
+                  the "Privilege" environment variable.
 
 ---------------------------------------------------------------------------
 
