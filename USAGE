@@ -15,7 +15,7 @@ relevant in for all uses of the module.
 
 debug          - print out extensive debugging information via pam_log.
                  These messages generally end up being handled by
-                 sylog(), and go to /var/log/messages.  Depending on
+                 syslog(), and go to /var/log/messages.  Depending on
                  your host operating system, the log messages may be
                  elsewhere.
 		 You should generally use the debug option when first
@@ -54,7 +54,7 @@ skip_passwd    - Do not prompt for a password, even if there was none
                  Otherwise, no password is sent to the next module.
 
 conf=foo       - set the configuration filename to 'foo'.
-                 Default is /etc/raddb/server
+                 Default is /etc/pam_radius_auth.conf
 
 client_id=bar  - send a NAS-Identifier RADIUS attribute with string
                  'bar'.  If the client_id is not specified, the PAM_SERVICE
@@ -80,10 +80,6 @@ localifdown    - This option tells pam_radius to return PAM_IGNORE instead
                  network unavailability.  PAM_IGNORE tells the pam stack
                  to continue down the stack regardless of the control flag.
 
-accounting_bug - When used, the accounting response vector is NOT
-                 validated.  This option will probably only be necessary
-                 on REALLY OLD (i.e. Livingston 1.16) servers.
-
 prompt=string  - Specifies the prompt, without the ': ', that PAM should
                  display when prompting for the password. This is useful
                  when using hardware tokens as part of multi-factor
@@ -93,7 +89,7 @@ prompt=string  - Specifies the prompt, without the ': ', that PAM should
                  situation.
 
 force_prompt   - Request a new password and not using the previously entered
-                 password. This usefull for multi-factor authentication
+                 password. This useful for multi-factor authentication
                  when used with a Token.
 
 max_challenge=# - configure maximum number of challenges that a server
@@ -104,6 +100,9 @@ prompt_attribute - Enable honoring of Prompt attribute sent from server for
                    challenge-response to enable/disable of echoing of user 
                    input. Without this option all user input during 
                    challenge-response will be echoed. See RFC2869 Section 5.10
+
+require_message_authenticator - Discard Access-Accept, Access-Challenge, and
+		Access-Reject packets which do not contain Message-Authenticator.
 
 ---------------------------------------------------------------------------
 

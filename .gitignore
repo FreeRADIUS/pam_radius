@@ -60,3 +60,6 @@ warnings.txt
 
 # Analyzer output
 /*.plist
+
+# Rpm
+rpmbuild/

@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
 #include <sys/param.h>
@@ -18,12 +19,12 @@
 #include <stdlib.h>
 #include <syslog.h>
 #include <stdarg.h>
-#include <utmp.h>
 #include <time.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <stdint.h>
 
 #if defined(HAVE_LINUX_IF_H)
 #include <linux/if.h>
@@ -113,7 +114,7 @@
                          * compiled in. This is the default.
                          */
 #ifndef CONF_FILE       /* the configuration file holding the server secret */
-#define CONF_FILE       "/etc/raddb/server"
+#define CONF_FILE       "/etc/pam_radius_auth.conf"
 #endif /* CONF_FILE */
 
 #ifndef FALSE
@@ -122,6 +123,30 @@
 #define TRUE !FALSE
 #endif
 
+/** Should be placed before the function return type
+ *
+ */
+#define NEVER_RETURNS		_Noreturn
+#define UNUSED			CC_HINT(unused)
+
+/*
+ *	Only use GCC __attribute__ if were building with a GCClike
+ *	compiler.
+ */
+#ifdef __GNUC__
+#  define CC_HINT(...)	__attribute__ ((__VA_ARGS__))
+#  define likely(_x)	__builtin_expect((_x), 1)
+#  define unlikely(_x)	__builtin_expect((_x), 0)
+#else
+#  define CC_HINT(...)
+#  define likely(_x)	_x
+#  define unlikely(_x)	_x
+#endif
+
+/** Should be placed before the function return type
+ *
+ */
+#define UNUSED			CC_HINT(unused)
 
 /*************************************************************************
  * Additional RADIUS definitions
@@ -150,9 +175,10 @@ typedef struct radius_server_t {
 typedef struct radius_conf_t {
 	radius_server_t *server;
 	int retries;
+	int use_ipv4;
+	int use_ipv6;
 	int localifdown;
-	char *client_id;
-	int accounting_bug;
+	CONST char *client_id;
 	int force_prompt;
 	int max_challenge;
 	int sockfd;
@@ -162,6 +188,8 @@ typedef struct radius_conf_t {
 	char prompt[MAXPROMPT];
 	int prompt_attribute;
 	int privilege_level;
+	int require_message_authenticator;
+	uint8_t *message_authenticator;
 } radius_conf_t;
 
 #endif /* PAM_RADIUS_H */

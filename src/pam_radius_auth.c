@@ -1,7 +1,5 @@
 /*
- * $Id: pam_radius_auth.c,v 1.39 2007/03/26 05:35:31 fcusack Exp $
- * pam_radius_auth
- *      Authenticate a user via a RADIUS session
+ *   Authenticate a user via a RADIUS session
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -16,12 +14,17 @@
  *   You should have received a copy of the GNU General Public License
  *   along with this program; if not, write to the Free Software
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * $Id: ee1d54767afa6c3801bb201f8a907dedb376cb11 $
  *
- * The original pam_radius.c code is copyright (c) Cristian Gafton, 1996,
- *                                             <gafton@redhat.com>
+ * @file pam_radius_auth.c
+ * @brief Authenticate a user via a RADIUS session
  *
- * Some challenge-response code is copyright (c) CRYPTOCard Inc, 1998.
- *                                              All rights reserved.
+ * @copyright 1996 Cristian Gafton <gafton@redhat.com>
+ * @copyright 1998 CRYPTOCard Inc
+ * @copyright 2021 Network RADIUS SAS (legal@networkradius.com)
  */
 
 #define PAM_SM_AUTH
@@ -33,25 +36,74 @@
 #define DPRINT if (debug) _pam_log
 
 /* internal data */
-static CONST char *pam_module_name = "pam_radius_auth";
+static CONST char pam_module_name[] = "pam_radius_auth";
 
-/* logging */
-static void _pam_log(int err, CONST char *format, ...)
-{
-	va_list args;
-	char buffer[BUFFER_SIZE];
+/* module version */
+static CONST char pam_module_version[] = PAM_RADIUS_VERSION_STRING
+#ifndef NDEBUG
+	" DEVELOPER BUILD - "
+#endif
+#ifdef PAM_RADIUS_VERSION_COMMIT
+	" (git #" PAM_RADIUS_VERSION_COMMIT ")"
+#endif
+	", built on " __DATE__ " at " __TIME__ ""
+;
 
-	va_start(args, format);
-	vsnprintf(buffer, sizeof(buffer), format, args);
-	/* don't do openlog or closelog, but put our name in to be friendly */
-	syslog(err, "%s: %s", pam_module_name, buffer);
-	va_end(args);
+/**
+ * Convert the packet code to string.
+ */
+static const char *get_packet_name(int code) {
+	switch(code) {
+		case PW_ACCESS_REQUEST: return "Access-Request";
+		case PW_ACCESS_ACCEPT: return "Access-Accept";
+		case PW_ACCESS_REJECT: return "Access-Reject";
+		case PW_ACCOUNTING_REQUEST: return "Accounting-Request";
+		case PW_ACCOUNTING_RESPONSE: return "Accounting-Response";
+		case PW_ACCOUNTING_STATUS: return "Accounting-Status";
+		case PW_ACCOUNTING_MESSAGE: return "Accounting-Message";
+		case PW_ACCESS_CHALLENGE: return "Access-Challenge";
+		default: return "Unknown";
+	}
 }
 
-/* argument parsing */
+/** log helper
+ *
+ * @param[in] err		Syslog priority id.
+ * @param[in] msg		Mensagem to print.
+ * @param[in] ...		Arguments for msg string.
+ */
+static void _pam_log(int err, char CONST *msg, ...)
+{
+	char buf[BUFFER_SIZE];
+	va_list ap;
+
+	va_start(ap, msg);
+#ifdef __clang__
+#	pragma clang diagnostic push
+#	pragma clang diagnostic ignored "-Wformat-nonliteral"
+#endif
+	(void)vsnprintf(buf, sizeof(buf), msg, ap);
+#ifdef __clang__
+#	pragma clang diagnostic pop
+#endif
+	va_end(ap);
+
+	/* don't do openlog or closelog, but put our name in to be friendly */
+	syslog(err, "%s: %s", pam_module_name, buf);
+}
+
+/** Argument parsing
+ *
+ * @param[in] argc		Number of parameters
+ * @param[in] argv		Array with all parameters
+ * @param[out] conf		Where to write the radius_conf_t.
+ * @return
+ *	- PAM used parameters
+ */
 static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 {
-	int ctrl=0;
+	int ctrl = 0;
+	int i = 0;
 
 	memset(conf, 0, sizeof(radius_conf_t)); /* ensure it's initialized */
 
@@ -60,98 +112,152 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 	/* set the default prompt */
 	snprintf(conf->prompt, MAXPROMPT, "%s: ", DEFAULT_PROMPT);
 
+	conf->use_ipv4 = 1;
+	conf->use_ipv6 = 1;
+
 	/*
 	 *	If either is not there, then we can't parse anything.
 	 */
-	if ((argc == 0) || (argv == NULL)) {
-		return ctrl;
-	}
+	if ((argc == 0) || (argv == NULL)) return ctrl;
 
 	/* step through arguments */
-	for (ctrl=0; argc-- > 0; ++argv) {
+	for (i = 0; i < argc; i++) {
+		char *arg;
+
+		memcpy(&arg, &argv[i], sizeof(arg));
+
+#ifndef NDEBUG
+		_pam_log(LOG_DEBUG, "_pam_parse: argv[%d] = '%s'", i, arg);
+#endif
 
 		/* generic options */
-		if (!strncmp(*argv,"conf=",5)) {
-			conf->conf_file = *argv+5;
+		if (!strncmp(arg, "conf=", 5)) {
+			conf->conf_file = (arg + 5);
 
-		} else if (!strcmp(*argv, "use_first_pass")) {
+		} else if (!strcmp(arg, "use_first_pass")) {
 			ctrl |= PAM_USE_FIRST_PASS;
 
-		} else if (!strcmp(*argv, "try_first_pass")) {
+		} else if (!strcmp(arg, "try_first_pass")) {
 			ctrl |= PAM_TRY_FIRST_PASS;
 
-		} else if (!strcmp(*argv, "skip_passwd")) {
+		} else if (!strcmp(arg, "skip_passwd")) {
 			ctrl |= PAM_SKIP_PASSWD;
 
-		} else if (!strncmp(*argv, "retry=", 6)) {
-			conf->retries = atoi(*argv+6);
+		} else if (!strncmp(arg, "retry=", 6)) {
+			conf->retries = strtoul((arg + 6), 0, 10);
 
-		} else if (!strcmp(*argv, "localifdown")) {
+		} else if (!strcmp(arg, "localifdown")) {
 			conf->localifdown = 1;
 
-		} else if (!strncmp(*argv, "client_id=", 10)) {
+		} else if (!strncmp(arg, "client_id=", 10)) {
 			if (conf->client_id) {
-				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
 			} else {
-				conf->client_id = (char *) *argv+10; /* point to the client-id */
+				conf->client_id = (arg + 10); /* point to the client-id */
 			}
-		} else if (!strcmp(*argv, "accounting_bug")) {
-			conf->accounting_bug = TRUE;
 
-		} else if (!strcmp(*argv, "ruser")) {
+		} else if (!strcmp(arg, "ruser")) {
 			ctrl |= PAM_RUSER_ARG;
 
-		} else if (!strcmp(*argv, "debug")) {
+		} else if (!strcmp(arg, "debug")) {
 			ctrl |= PAM_DEBUG_ARG;
 			conf->debug = TRUE;
 
-		} else if (!strncmp(*argv, "prompt=", 7)) {
-			if (!strncmp(conf->prompt, (char*)*argv+7, MAXPROMPT)) {
-				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", *argv);
+		} else if (!strncmp(arg, "prompt=", 7)) {
+			if (!strncmp(conf->prompt, (arg+7), MAXPROMPT)) {
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
 			} else {
 				/* truncate excessive prompts to (MAXPROMPT - 3) length */
-				if (strlen((char*)*argv+7) >= (MAXPROMPT - 3)) {
-					*((char*)*argv+7 + (MAXPROMPT - 3)) = 0;
+				if (strlen((arg+7)) >= (MAXPROMPT - 3)) {
+					*((arg + 7) + (MAXPROMPT - 3)) = '\0';
 				}
+
 				/* set the new prompt */
 				memset(conf->prompt, 0, sizeof(conf->prompt));
-				snprintf(conf->prompt, MAXPROMPT, "%s: ", (char*)*argv+7);
+				snprintf(conf->prompt, MAXPROMPT, "%s: ", (arg+7));
 			}
 
-		} else if (!strcmp(*argv, "force_prompt")) {
-			conf->force_prompt= TRUE;
+		} else if (!strcmp(arg, "force_prompt")) {
+			conf->force_prompt = TRUE;
 
-		} else if (!strcmp(*argv, "prompt_attribute")) {
+		} else if (!strcmp(arg, "prompt_attribute")) {
 			conf->prompt_attribute = TRUE;
 
-		} else if (!strncmp(*argv, "max_challenge=", 14)) {
-			conf->max_challenge = atoi(*argv+14);
+		} else if (!strncmp(arg, "max_challenge=", 14)) {
+			conf->max_challenge = strtoul((arg+14), 0, 10);
 
-		} else if (!strcmp(*argv, "privilege_level")) {
+		} else if (!strncmp(arg, "ipv4=", 5)) {
+			if (!strcmp(arg + 5, "yes")) conf->use_ipv4 = 1;
+			if (!strcmp(arg + 5, "no")) conf->use_ipv4 = 0;
+
+		} else if (!strncmp(arg, "ipv6=", 5)) {
+			if (!strcmp(arg + 5, "yes")) conf->use_ipv6 = 1;
+			if (!strcmp(arg + 5, "no")) conf->use_ipv6 = 0;
+
+		} else if (!strcmp(arg, "privilege_level")) {
 			conf->privilege_level = TRUE;
 
+		} else if (!strcmp(arg, "require_message_authenticator")) {
+			conf->require_message_authenticator = TRUE;
+
 		} else {
-			_pam_log(LOG_WARNING, "unrecognized option '%s'", *argv);
+			_pam_log(LOG_WARNING, "unrecognized option '%s'", arg);
 		}
+	}
+
+	if (!conf->use_ipv4 && !conf->use_ipv6) {
+		_pam_log(LOG_WARNING, "Cannot disable both IPv4 and IPv6'");
+
+		conf->use_ipv4 = 1;
+	}
+
+	if (conf->debug) {
+#define print_bool(cond) (cond) ? "yes" : "no"
+#define print_string(cond) (cond) ? cond : ""
+
+		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
+							"localifdown=%s client_id='%s' ruser=%s prompt='%s' force_prompt=%s "\
+							"prompt_attribute=%s max_challenge=%d privilege_level=%s "\
+							"require_message_authenticator=%s",
+				conf->conf_file,
+				print_bool(ctrl & PAM_USE_FIRST_PASS),
+				print_bool(ctrl & PAM_TRY_FIRST_PASS),
+				print_bool(ctrl & PAM_SKIP_PASSWD),
+				conf->retries,
+				print_bool(conf->localifdown),
+				print_string(conf->client_id),
+				print_bool(ctrl & PAM_RUSER_ARG),
+				conf->prompt,
+				print_bool(conf->force_prompt),
+				print_bool(conf->prompt_attribute),
+				conf->max_challenge,
+				print_bool(conf->privilege_level),
+				print_bool(conf->require_message_authenticator)
+		);
 	}
 
 	return ctrl;
 }
 
-/* Callback function used to free the saved return value for pam_setcred. */
-void _int_free(pam_handle_t * pamh, void *x, int error_status)
+/** Callback function used to free the saved return value for pam_setcred.
+ *
+ * @param[in] pamh			PAM context specified by the pamh argument
+ * @param[in] data			Associate some data with the handle pamh
+ * @param[in] error_status	used to indicate to the module the sort of action it
+ */
+static void _int_free(UNUSED pam_handle_t *pamh, void *data, UNUSED int error_status)
 {
-		free(x);
+	free(data);
 }
 
-/*************************************************************************
- * SMALL HELPER FUNCTIONS
- *************************************************************************/
-
-/*
- * A strerror_r() wrapper function to deal with its nuisances.
+/** A strerror_r() wrapper function to deal with its nuisances.
+ *
+ * @param[in] errnum		syslog priority id
+ * @param[in] buf	        Variadic arguments
+ * @param[in] buflen	    Variadic arguments
  */
-static void get_error_string(int errnum, char *buf, size_t buflen) {
+static void get_error_string(int errnum, char *buf, size_t buflen)
+{
 #if !defined(__GLIBC__) || ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && ! _GNU_SOURCE)
 	/* XSI version of strerror_r(). */
 	int retval = strerror_r(errnum, buf, buflen);
@@ -170,30 +276,43 @@ static void get_error_string(int errnum, char *buf, size_t buflen) {
 #endif
 }
 
-/*
- * Return an IP address as a struct sockaddr *.
+/** Return an IP address as a struct sockaddr
+ *
+ * @param[in] host		Hostname
+ * @param[out] addr	    sockaddr buffer
+ * @param[in] port	    used port
+ * @return
+ *	- returns zero on success or one of the error codes listed in gai_strerror(3)
+ *    if an error occurs
  */
-static int get_ipaddr(char *host, struct sockaddr *addr, char *port) {
+static int get_ipaddr(CONST char *host, struct sockaddr *addr, CONST char *port)
+{
 	struct addrinfo hints;
 	struct addrinfo *results;
-	int r;
+	int retval;
 
 	memset(&hints, 0, sizeof(hints));
+
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_ADDRCONFIG;
 
-	r = getaddrinfo(host, port && port[0] ? port : NULL, &hints, &results);
-	if (r == 0) {
+	retval = getaddrinfo(host, port && port[0] ? port : NULL, &hints, &results);
+	if (retval == 0) {
 		memcpy(addr, results->ai_addr, results->ai_addrlen);
 		freeaddrinfo(results);
 	}
 
-	return r;
+	return retval;
 }
 
-/*
- * take server->hostname, and convert it to server->ip
+/** take server->hostname, and convert it to server->ip
+ *
+ * @param[in]  debug		Debug status
+ * @param[out] server	    radius_server_t buffer
+ * @return
+ *	- returns zero on success or one of the error codes listed in gai_strerror(3)
+ *    if an error occurs
  */
 static int host2server(int debug, radius_server_t *server)
 {
@@ -202,13 +321,15 @@ static int host2server(int debug, radius_server_t *server)
 	char *hostname;
 	char *portstart;
 	char *p, *port;
-	int r, n;
+	int retval, n;
 
 	/* hostname might be [ipv6::address] */
 	strncpy(hostbuffer, server->hostname, sizeof(hostbuffer) - 1);
+
 	hostbuffer[sizeof(hostbuffer) - 1] = 0;
 	hostname = hostbuffer;
 	portstart = hostbuffer;
+
 	if (hostname[0] == '[') {
 		if ((p = strchr(hostname, ']')) != NULL) {
 			hostname++;
@@ -216,38 +337,37 @@ static int host2server(int debug, radius_server_t *server)
 			portstart = p;
 		}
 	}
+
 	if ((port = strchr(portstart, ':')) != NULL) {
 		*port++ = '\0';
-		if (isdigit((unsigned char)*port) && server->accounting) {
+		if (isdigit((uint8_t)*port) && server->accounting) {
 			if (sscanf(port, "%d", &n) == 1) {
 				snprintf(tmp, sizeof(tmp), "%d", n + 1);
 				port = tmp;
 			}
 		}
 	} else {
-		if (server->accounting)
-			port = "radacct";
-		else
-			port = "radius";
+		strncpy(tmp, (server->accounting) ? "radacct" : "radius", sizeof(tmp));
+		port = tmp;
 	}
 
 	server->ip = (struct sockaddr *)&server->ip_storage;
-	r = get_ipaddr(hostname, server->ip, port);
-	DPRINT(LOG_DEBUG, "DEBUG: get_ipaddr(%s) returned %d.\n", hostname, r);
-	return r;
+	retval = get_ipaddr(hostname, server->ip, port);
+
+	DPRINT(LOG_DEBUG, "DEBUG: get_ipaddr(%s) returned %d.\n", hostname, retval);
+
+	return retval;
 }
 
-/*
- * Do XOR of two buffers.
+/** Do XOR of two buffers.
  */
-static unsigned char * xor(unsigned char *p, unsigned char *q, int length)
+static uint8_t * xor(uint8_t *p, uint8_t *q, int length)
 {
+	uint8_t *retval= p;
 	int i;
-	unsigned char *retval = p;
 
-	for (i = 0; i < length; i++) {
-		*(p++) ^= *(q++);
-	}
+	for (i = 0; i < length; i++) *(p++) ^= *(q++);
+
 	return retval;
 }
 
@@ -255,21 +375,22 @@ static unsigned char * xor(unsigned char *p, unsigned char *q, int length)
  * MID-LEVEL RADIUS CODE
  **************************************************************************/
 
-/*
- * get a pseudo-random vector.
+/* get a pseudo-random vector.
  */
-static void get_random_vector(unsigned char *vector)
+static void get_random_vector(uint8_t *vector)
 {
 #ifdef linux
-	int fd = open("/dev/urandom",O_RDONLY); /* Linux: get *real* random numbers */
 	int total = 0;
+	int fd;
+
+	fd = open("/dev/urandom", O_RDONLY); /* Linux: get *real* random numbers */
 	if (fd >= 0) {
 		while (total < AUTH_VECTOR_LEN) {
 			int bytes = read(fd, vector + total, AUTH_VECTOR_LEN - total);
-			if (bytes <= 0)
-				break;			/* oops! Error */
+			if (bytes <= 0)	break;			/* oops! Error */
 			total += bytes;
 		}
+
 		close(fd);
 	}
 
@@ -281,52 +402,82 @@ static void get_random_vector(unsigned char *vector)
 		struct timezone tz;
 		static unsigned int session = 0; /* make the number harder to guess */
 
-		/* Use the time of day with the best resolution the system can
-	 	   give us -- often close to microsecond accuracy. */
+		/**
+		 * Use the time of day with the best resolution the system can
+		 * give us -- often close to microsecond accuracy.
+		 */
 		gettimeofday(&tv,&tz);
 
-		if (session == 0) {
-			session = getppid();	/* (possibly) hard to guess information */
-		}
+		if (session == 0) session = getppid();	/* (possibly) hard to guess information */
 
 		tv.tv_sec ^= getpid() * session++;
 
 		/* Hash things to get maybe cryptographically strong pseudo-random numbers */
 		MD5Init(&my_md5);
-		MD5Update(&my_md5, (unsigned char *) &tv, sizeof(tv));
-		MD5Update(&my_md5, (unsigned char *) &tz, sizeof(tz));
+		MD5Update(&my_md5, (uint8_t *) &tv, sizeof(tv));
+		MD5Update(&my_md5, (uint8_t *) &tz, sizeof(tz));
 		MD5Final(vector, &my_md5);				/* set the final vector */
 	}
 }
 
-/*
- * RFC 2139 says to do generate the accounting request vector this way.
- * However, the Livingston 1.16 server doesn't check it.	The Cistron
- * server (http://home.cistron.nl/~miquels/radius/) does, and this code
- * seems to work with it.	It also works with Funk's Steel-Belted RADIUS.
+/**
+ *	Follow RFC 2866 for Accounting-Request vector.
  */
 static void get_accounting_vector(AUTH_HDR *request, radius_server_t *server)
 {
 	MD5_CTX my_md5;
+	uint16_t len = ntohs(request->length);
 	int secretlen = strlen(server->secret);
-	int len = ntohs(request->length);
 
 	memset(request->vector, 0, AUTH_VECTOR_LEN);
 	MD5Init(&my_md5);
 	memcpy(((char *)request) + len, server->secret, secretlen);
 
-	MD5Update(&my_md5, (unsigned char *)request, len + secretlen);
+	MD5Update(&my_md5, (uint8_t *)request, len + secretlen);
 	MD5Final(request->vector, &my_md5);			/* set the final vector */
 }
 
-/*
+/**
  * Verify the response from the server
  */
-static int verify_packet(char *secret, AUTH_HDR *response, AUTH_HDR *request)
+static int verify_packet(radius_server_t *server, AUTH_HDR *response, AUTH_HDR *request, radius_conf_t *conf)
 {
 	MD5_CTX my_md5;
-	unsigned char	calculated[AUTH_VECTOR_LEN];
-	unsigned char	reply[AUTH_VECTOR_LEN];
+	uint8_t calculated[AUTH_VECTOR_LEN];
+	uint8_t reply[AUTH_VECTOR_LEN];
+	uint8_t *message_authenticator = NULL;
+	CONST uint8_t *attr, *end;
+	size_t secret_len = strlen(server->secret);
+
+	attr = response->data;
+	end = (uint8_t *) response + ntohs(response->length);
+
+	/*
+	 *	Check that the packet is well-formed, and find the Message-Authenticator.
+	 */
+	while (attr < end) {
+		size_t remaining = end - attr;
+
+		if (remaining < 2) return FALSE;
+
+		if (attr[1] < 2) return FALSE;
+
+		if (attr[1] > remaining) return FALSE;
+
+		if (attr[0] == PW_MESSAGE_AUTHENTICATOR) {
+			if (attr[1] != 18) return FALSE;
+
+			if (message_authenticator) return FALSE;
+
+			message_authenticator = (uint8_t *) response + (attr - (uint8_t *) response) + 2;
+		}
+
+		attr += attr[1];
+	}
+
+	if ((request->code == PW_ACCESS_REQUEST) && conf->require_message_authenticator && !message_authenticator) {
+		return FALSE;
+	}
 
 	/*
 	 * We could dispense with the memcpy, and do MD5's of the packet
@@ -337,75 +488,80 @@ static int verify_packet(char *secret, AUTH_HDR *response, AUTH_HDR *request)
 
 	/* MD5(response packet header + vector + response packet data + secret) */
 	MD5Init(&my_md5);
-	MD5Update(&my_md5, (unsigned char *) response, ntohs(response->length));
-
-	/*
-	 * This next bit is necessary because of a bug in the original Livingston
-	 * RADIUS server.	The authentication vector is *supposed* to be MD5'd
-	 * with the old password (as the secret) for password changes.
-	 * However, the old password isn't used.	The "authentication" vector
-	 * for the server reply packet is simply the MD5 of the reply packet.
-	 * Odd, the code is 99% there, but the old password is never copied
-	 * to the secret!
-	 */
-	if (*secret) {
-		MD5Update(&my_md5, (unsigned char *) secret, strlen(secret));
-	}
-
+	MD5Update(&my_md5, (uint8_t *) response, ntohs(response->length));
+	MD5Update(&my_md5, (CONST uint8_t *) server->secret, secret_len);
 	MD5Final(calculated, &my_md5);			/* set the final vector */
 
 	/* Did he use the same random vector + shared secret? */
-	if (memcmp(calculated, reply, AUTH_VECTOR_LEN) != 0) {
-		return FALSE;
-	}
+	if (memcmp(calculated, reply, AUTH_VECTOR_LEN) != 0) return FALSE;
+
+	if (!message_authenticator) return TRUE;
+
+	/*
+	 *	RFC2869 Section 5.14.
+	 *
+	 *	Message-Authenticator is calculated with the Request
+	 *	Authenticator (copied into the packet above), and with
+	 *	the Message-Authenticator attribute contents set to
+	 *	zero.
+	 */
+	memcpy(reply, message_authenticator, AUTH_VECTOR_LEN);
+	memset(message_authenticator, 0, AUTH_VECTOR_LEN);
+
+	hmac_md5(calculated, (uint8_t *) response, ntohs(response->length), (const uint8_t *) server->secret, secret_len);
+
+	if (memcmp(calculated, reply, AUTH_VECTOR_LEN) != 0) return FALSE;
+
 	return TRUE;
 }
 
-/*
+/**
  * Find an attribute in a RADIUS packet.	Note that the packet length
  * is *always* kept in network byte order.
  */
-static attribute_t *find_attribute(AUTH_HDR *response, unsigned char type)
+static attribute_t *find_attribute(AUTH_HDR *response, uint8_t type)
 {
 	attribute_t *attr = (attribute_t *) &response->data;
+	uint16_t len;
 
-	int len = ntohs(response->length) - AUTH_HDR_LEN;
+	len = (ntohs(response->length) - AUTH_HDR_LEN);
 
 	while (attr->attribute != type) {
-		if ((len -= attr->length) <= 0) {
-			return NULL;		/* not found */
-		}
+		if ((len -= attr->length) <= 0) return NULL;		/* not found */
+
 		attr = (attribute_t *) ((char *) attr + attr->length);
 	}
 
 	return attr;
 }
 
-/*
+/**
  * Add an attribute to a RADIUS packet.
  */
-static void add_attribute(AUTH_HDR *request, unsigned char type, CONST unsigned char *data, int length)
+static void add_attribute(AUTH_HDR *request, uint8_t type, CONST uint8_t *data, int length)
 {
 	attribute_t *p;
 
-	p = (attribute_t *) ((unsigned char *)request + ntohs(request->length));
+	p = (attribute_t *) ((uint8_t *)request + ntohs(request->length));
 	p->attribute = type;
 	p->length = length + 2;		/* the total size of the attribute */
+
 	request->length = htons(ntohs(request->length) + p->length);
+
 	memcpy(p->data, data, length);
 }
 
-/*
+/**
  * Add an integer attribute to a RADIUS packet.
  */
-static void add_int_attribute(AUTH_HDR *request, unsigned char type, int data)
+static void add_int_attribute(AUTH_HDR *request, uint8_t type, int data)
 {
-	int value = htonl(data);
+	uint32_t value = htonl(data);
 
-	add_attribute(request, type, (unsigned char *) &value, sizeof(int));
+	add_attribute(request, type, (uint8_t *) &value, sizeof(value));
 }
 
-static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
+static void add_nas_ip_address(AUTH_HDR *request, CONST char *hostname) {
 	struct addrinfo hints;
 	struct addrinfo *ai_start;
 	struct addrinfo *ai;
@@ -418,21 +574,25 @@ static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
 	hints.ai_flags = AI_ADDRCONFIG;
 
 	r = getaddrinfo(hostname, NULL, &hints, &ai_start);
-	if (r != 0)
-		return;
+	if (r != 0)	return;
 
 	ai = ai_start;
 	while (ai != NULL) {
 		if (!v4seen && ai->ai_family == AF_INET) {
 			v4seen = 1;
+
 			r = ((struct sockaddr_in *)ai->ai_addr)->sin_addr.s_addr;
+
 			add_int_attribute(request, PW_NAS_IP_ADDRESS, ntohl(r));
 		}
+
 		if (!v6seen && ai->ai_family == AF_INET6) {
 			v6seen = 1;
+
 			add_attribute(request, PW_NAS_IPV6_ADDRESS,
-				(unsigned char *) &((struct sockaddr_in6 *)ai->ai_addr)->sin6_addr, 16);
+				(uint8_t *) &((struct sockaddr_in6 *)ai->ai_addr)->sin6_addr, 16);
 		}
+
 		ai = ai->ai_next;
 	}
 
@@ -440,26 +600,23 @@ static void add_nas_ip_address(AUTH_HDR *request, char *hostname) {
 }
 
 /*
- * Add a RADIUS password attribute to the packet.	Some magic is done here.
- *
- * If it's an PW_OLD_PASSWORD attribute, it's encrypted using the encrypted
- * PW_PASSWORD attribute as the initialization vector.
+ * Add a RADIUS password attribute to the packet.
  *
  * If the password attribute already exists, it's over-written.	This allows
  * us to simply call add_password to update the password for different
  * servers.
  */
-static void add_password(AUTH_HDR *request, unsigned char type, CONST char *password, char *secret)
+static void add_password(AUTH_HDR *request, uint8_t type, CONST char *password, CONST char *secret)
 {
 	MD5_CTX md5_secret, my_md5;
-	unsigned char misc[AUTH_VECTOR_LEN];
+	uint8_t misc[AUTH_VECTOR_LEN];
 	int i;
 	int length = strlen(password);
-	unsigned char hashed[256 + AUTH_PASS_LEN];	/* can't be longer than this */
-	unsigned char *vector;
+	uint8_t hashed[256 + AUTH_PASS_LEN];	/* can't be longer than this */
+	uint8_t *vector;
 	attribute_t *attr;
 
-	if (length > MAXPASS) {				/* shorten the password for now */
+	if (length > MAXPASS) {				    /* shorten the password for now */
 		length = MAXPASS;
 	}
 
@@ -467,25 +624,20 @@ static void add_password(AUTH_HDR *request, unsigned char type, CONST char *pass
 	memset(hashed + length, 0, sizeof(hashed) - length);
 
 	if (length == 0) {
-		length = AUTH_PASS_LEN;			/* 0 maps to 16 */
+		length = AUTH_PASS_LEN;			    /* 0 maps to 16 */
 	} if ((length & (AUTH_PASS_LEN - 1)) != 0) {
 		length += (AUTH_PASS_LEN - 1);		/* round it up */
 		length &= ~(AUTH_PASS_LEN - 1);		/* chop it off */
 	}						/* 16*N maps to itself */
 
-	attr = find_attribute(request, PW_PASSWORD);
-
-	if (type == PW_PASSWORD) {
-		vector = request->vector;
-	} else {
-		vector = attr->data;			/* attr CANNOT be NULL here. */
-	}
+	attr = find_attribute(request, PW_USER_PASSWORD);
+	vector = request->vector;
 
 	/* ************************************************************ */
 	/* encrypt the password */
 	/* password : e[0] = p[0] ^ MD5(secret + vector) */
 	MD5Init(&md5_secret);
-	MD5Update(&md5_secret, (unsigned char *) secret, strlen(secret));
+	MD5Update(&md5_secret, (CONST uint8_t *) secret, strlen(secret));
 	my_md5 = md5_secret;				/* so we won't re-do the hash later */
 	MD5Update(&my_md5, vector, AUTH_VECTOR_LEN);
 	MD5Final(misc, &my_md5);			/* set the final vector */
@@ -499,14 +651,10 @@ static void add_password(AUTH_HDR *request, unsigned char type, CONST char *pass
 		xor(&hashed[i * AUTH_PASS_LEN], misc, AUTH_PASS_LEN);
 	}
 
-	if (type == PW_OLD_PASSWORD) {
-		attr = find_attribute(request, PW_OLD_PASSWORD);
-	}
-
 	if (!attr) {
 		add_attribute(request, type, hashed, length);
 	} else {
-		memcpy(attr->data, hashed, length); /* overwrite the packet */
+		memcpy(attr->data, hashed, length); /* overwrite the old value of the attribute */
 	}
 }
 
@@ -518,17 +666,23 @@ static void cleanup(radius_server_t *server)
 		next = server->next;
 		_pam_drop(server->hostname);
 		_pam_forget(server->secret);
-		if (server->sockfd != -1)
-			close(server->sockfd);
-		if (server->sockfd6 != -1)
-			close(server->sockfd6);
+
+		if (server->sockfd != -1) close(server->sockfd);
+
+		if (server->sockfd6 != -1) close(server->sockfd6);
+
 		_pam_drop(server);
 		server = next;
 	}
 }
 
-static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
+static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
 {
+	if (!conf->use_ipv4) {
+		*sockfd = -1;
+		goto use_ipv6;
+	}
+
 	/* open a socket.	Dies if it fails */
 	*sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (*sockfd < 0) {
@@ -566,10 +720,22 @@ static int initialize_sockets(int *sockfd, int *sockfd6, struct sockaddr_storage
 		return -1;
 	}
 
-	/* open a IPv6 socket.	Dies if it fails */
+	if (!conf->use_ipv6) {
+		*sockfd6 = -1;
+		return 0;
+	}
+
+use_ipv6:
+	/* open a IPv6 socket. */
 	*sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
 	if (*sockfd6 < 0) {
 		char error_string[BUFFER_SIZE];
+
+		/*
+		 *	IPv6 can be disabled on localhost.
+		 */
+		if (errno == EAFNOSUPPORT) return 0;
+
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Failed to open RADIUS IPv6 socket: %s\n", error_string);
 		return -1;
@@ -692,8 +858,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		/*
 		 *	Fill in the relevant fields.
 		 */
-		server = malloc(sizeof(radius_server_t));
-		memset(server, 0, sizeof(*server));
+		server = calloc(1, sizeof(radius_server_t));
 		*last = server;
 		server->next = NULL;
 		last = &server->next;
@@ -738,6 +903,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 			case AF_INET:
 				memcpy(&salocal4, &salocal, sizeof(salocal));
 				break;
+
 			case AF_INET6:
 				memcpy(&salocal6, &salocal, sizeof(salocal));
 				break;
@@ -745,12 +911,12 @@ static int initialize(radius_conf_t *conf, int accounting)
 		}
 
 		if (valid_src_ip == 0 || vrf[0]) {
-			if (initialize_sockets(&server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
+			if (initialize_sockets(conf, &server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
+
 				goto error;
 			}
 		}
 	}
-	fclose(fp);
 
 	if (!conf->server) {		/* no server found, die a horrible death */
 		_pam_log(LOG_ERR, "No RADIUS server found in configuration file %s\n",
@@ -766,18 +932,22 @@ static int initialize(radius_conf_t *conf, int accounting)
 	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
-	if (initialize_sockets(&conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
+	if (initialize_sockets(conf, &conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
 		goto error;
 	}
 
+	fclose(fp);
 	return PAM_SUCCESS;
 
 error:
-	if (conf->sockfd != -1)
-		close(conf->sockfd);
-	if (conf->sockfd6 != -1)
-		close(conf->sockfd6);
+	fclose(fp);
+
+	if (conf->sockfd != -1)	close(conf->sockfd);
+	
+	if (conf->sockfd6 != -1) close(conf->sockfd6);
+	
 	cleanup(conf->server);
+	
 	return PAM_AUTHINFO_UNAVAIL;
 }
 
@@ -792,25 +962,40 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 	hostname[0] = '\0';
 	gethostname(hostname, sizeof(hostname) - 1);
 
-	request->length = htons(AUTH_HDR_LEN);
+	/*
+	 *	For Access-Request, create a random authentication
+	 *	vector, and always add a Message-Authenticator
+	 *	attribute.
+	 */
+	if (request->code == PW_ACCESS_REQUEST) {
+              uint8_t *attr = (uint8_t *) request + AUTH_HDR_LEN;
 
-	if (password) {		/* make a random authentication req vector */
-		get_random_vector(request->vector);
+	      get_random_vector(request->vector);
+
+              attr[0] = PW_MESSAGE_AUTHENTICATOR;
+              attr[1] = 18;
+              memset(attr + 2, 0, AUTH_VECTOR_LEN);
+	      conf->message_authenticator = attr + 2;
+
+              request->length = htons(AUTH_HDR_LEN + 18);
+	} else {
+		request->length = htons(AUTH_HDR_LEN);
+		conf->message_authenticator = NULL;
 	}
 
-	add_attribute(request, PW_USER_NAME, (unsigned char *) user, strlen(user));
+	add_attribute(request, PW_USER_NAME, (CONST uint8_t *) user, strlen(user));
 
 	/*
 	 *	Add a password, if given.
 	 */
 	if (password) {
-		add_password(request, PW_PASSWORD, password, conf->server->secret);
+		add_password(request, PW_USER_PASSWORD, password, conf->server->secret);
 
 		/*
 		 *	Add a NULL password to non-accounting requests.
 		 */
 	} else if (request->code != PW_ACCOUNTING_REQUEST) {
-		add_password(request, PW_PASSWORD, "", conf->server->secret);
+		add_password(request, PW_USER_PASSWORD, "", conf->server->secret);
 	}
 
 	/* Perhaps add NAS IP Address (and v6 version) */
@@ -818,7 +1003,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 
 	/* There's always a NAS identifier */
 	if (conf->client_id && *conf->client_id) {
-		add_attribute(request, PW_NAS_IDENTIFIER, (unsigned char *) conf->client_id, strlen(conf->client_id));
+		add_attribute(request, PW_NAS_IDENTIFIER, (CONST uint8_t *) conf->client_id, strlen(conf->client_id));
 	}
 
 	/*
@@ -830,12 +1015,37 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 	add_int_attribute(request, PW_NAS_PORT_TYPE, PW_NAS_PORT_TYPE_VIRTUAL);
 }
 
+static int ipaddr_cmp(struct sockaddr_storage const *a, struct sockaddr_storage const *b)
+{
+	if (a->ss_family != b->ss_family) {
+		_pam_log(LOG_ERR, "RADIUS packet from invalid source - ignoring it");
+		return 0;
+	}
+
+	switch (a->ss_family) {
+	case AF_INET:
+		return (memcmp(&((struct sockaddr_in const *) a)->sin_addr.s_addr,
+			       &((struct sockaddr_in const *) b)->sin_addr.s_addr,
+			       sizeof(((struct sockaddr_in const *) a)->sin_addr.s_addr)) == 0);
+
+	case AF_INET6:
+		return (memcmp(&((struct sockaddr_in6 const *) a)->sin6_addr.s6_addr,
+			       &((struct sockaddr_in6 const *) b)->sin6_addr.s6_addr,
+			       sizeof(((struct sockaddr_in6 const *) a)->sin6_addr.s6_addr)) == 0);
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 /*
  * Talk RADIUS to a server.
  * Send a packet and get the response
  */
 static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *response,
-		       char *password, char *old_password, int tries)
+		       char *password, int tries)
 {
 	int total_length;
 #ifdef HAVE_POLL_H
@@ -853,7 +1063,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 	int retval;
 	int sockfd;
 	socklen_t salen;
-
+	struct sockaddr_storage sockaddr_storage;
 	/* ************************************************************ */
 	/* Now that we're done building the request, we can send it */
 
@@ -882,7 +1092,13 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			goto next;		/* skip to the next server */
 		}
 
-		if (!password) { 		/* make an RFC 2139 p6 request authenticator */
+		if (request->code == PW_ACCESS_REQUEST) {
+			memset(conf->message_authenticator, 0, AUTH_VECTOR_LEN);
+			hmac_md5(conf->message_authenticator, (uint8_t *) request, ntohs(request->length),
+				 (const uint8_t *) server->secret, strlen(server->secret));
+
+		} else {
+			/* make an RFC 2139 p6 request authenticator */
 			get_accounting_vector(request, server);
 		}
 
@@ -890,6 +1106,14 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			sockfd = server->sockfd != -1 ? server->sockfd : conf->sockfd;
 		} else {
 			sockfd = server->sockfd6 != -1 ? server->sockfd6 : conf->sockfd6;
+		}
+
+		/*
+		 *	Is there a valid socket for this server + address family?  If not, skip it.
+		 */
+		if (sockfd < 0) {
+			ok = FALSE;
+			goto next;
 		}
 
 		total_length = ntohs(request->length);
@@ -902,8 +1126,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		}
 
 		/* send the packet */
-		if (sendto(sockfd, (char *) request, total_length, 0,
-			   server->ip, salen) < 0) {
+		if (sendto(sockfd, (char *) request, total_length, 0, server->ip, salen) < 0) {
 			char error_string[BUFFER_SIZE];
 			get_error_string(errno, error_string, sizeof(error_string));
 			_pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
@@ -945,8 +1168,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				}
 				ok = FALSE;
 				break;			/* exit from the loop */
-			} else if (rcode < 0) {
+			}
 
+			if (rcode < 0) {
 				/* poll returned an error */
 				if (errno == EINTR) {	/* we were interrupted */
 					time(&now);
@@ -978,65 +1202,60 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #else
 			} else if (FD_ISSET(sockfd, &set)) {
 #endif
-
 				/* try to receive some data */
+				salen = sizeof(sockaddr_storage);
+
 				if ((total_length = recvfrom(sockfd, (void *) response, BUFFER_SIZE,
-							     0, NULL, NULL)) < 0) {
+							     0, (struct sockaddr *) &sockaddr_storage, &salen)) < 0) {
 					char error_string[BUFFER_SIZE];
 					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
 					 	 server->hostname, error_string);
-					ok = FALSE;
-					break;
+					continue;
+				}
 
-				/* there's data, see if it's valid */
-				} else {
-					char *p = server->secret;
+				/*
+				 *	Ignore packets from the wrong source iP
+				 */
+				if (!ipaddr_cmp(&sockaddr_storage, &server->ip_storage)) {
+					_pam_log(LOG_ERR, "Received data from unexpected source - ignoring it");
+					continue;
+				}
 
-					if ((ntohs(response->length) != total_length) ||
-					    (ntohs(response->length) > BUFFER_SIZE)) {
-						_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
-						 	 server->hostname);
-						ok = FALSE;
-						break;
-					}
+				if ((ntohs(response->length) != total_length) ||
+				    (ntohs(response->length) > BUFFER_SIZE)) {
+					_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
+						 server->hostname);
+					continue;
+				}
 
-					/* Check if we have the data OK. We should also check request->id */
-					if (password) {
-						if (old_password) {
-#ifdef LIVINGSTON_PASSWORD_VERIFY_BUG_FIXED
-							p = old_password;	/* what it should be */
-#else
-							p = "";			/* what it really is */
-#endif
-						}
-					/*
-					 * RFC 2139 p.6 says not do do this, but the Livingston 1.16
-					 * server disagrees.	If the user says he wants the bug, give in.
-					 */
-					} else {		/* authentication request */
-						if (conf->accounting_bug) {
-							p = "";
-						}
-					}
+				/*
+				 * Check that the response ID matches the request ID.
+				 */
+				if (response->id != request->id) {
+					_pam_log(LOG_WARNING, "Response packet ID %d does not match the "
+						 "request packet ID %d: ignoring it.",
+						 response->id, request->id);
+					continue;
+				}
 
-					if (!verify_packet(p, response, request)) {
-						_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
-							 "The shared secret is probably incorrect.", server->hostname);
-						ok = FALSE;
-						break;
-					}
+				if ((request->code == PW_ACCOUNTING_REQUEST) && (response->code != PW_ACCOUNTING_RESPONSE)) {
+					_pam_log(LOG_WARNING, "Invalid response to Accounting-Request: ignoring it.",
+						 response->id, request->id);
+					continue;
+				}
 
-					/*
-					 * Check that the response ID matches the request ID.
-					 */
-					if (response->id != request->id) {
-						_pam_log(LOG_WARNING, "Response packet ID %d does not match the "
-							 "request packet ID %d: verification of packet fails",
-							 response->id, request->id);
-						ok = FALSE;
-						break;
-					}
+				if ((request->code == PW_ACCESS_REQUEST) &&
+				    !((response->code == PW_ACCESS_ACCEPT) || (response->code == PW_ACCESS_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
+					_pam_log(LOG_WARNING, "Invalid response to Access-Request: ignoring it.",
+						 response->id, request->id);
+					continue;
+				}
+
+				if (!verify_packet(server, response, request, conf)) {
+					_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
+						 "The shared secret is probably incorrect.", server->hostname);
+					continue;
 				}
 
 				/*
@@ -1050,7 +1269,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			/* otherwise, we've got data on another descriptor, keep checking the network */
 		}
 
-			/* go to the next server if this one didn't respond */
+		/* go to the next server if this one didn't respond */
 		next:
 		if (!ok) {
 			radius_server_t *old;	/* forget about this server */
@@ -1071,12 +1290,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				/* update passwords, as appropriate */
 				if (password) {
 					get_random_vector(request->vector);
-					if (old_password) {	/* password change request */
-						add_password(request, PW_PASSWORD, password, old_password);
-						add_password(request, PW_OLD_PASSWORD, old_password, old_password);
-					} else {		/* authentication request */
-						add_password(request, PW_PASSWORD, password, server->secret);
-					}
+					add_password(request, PW_USER_PASSWORD, password, server->secret);
 				}
 			}
 			continue;
@@ -1111,7 +1325,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { return retval; }
 
-static int rad_converse(pam_handle_t *pamh, int msg_style, char *message, char **password)
+static int rad_converse(pam_handle_t *pamh, int msg_style, const char *message, char **password)
 {
 	CONST struct pam_conv *conv;
 	struct pam_message resp_msg;
@@ -1120,14 +1334,15 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, char *message, char *
 	int retval;
 
 	resp_msg.msg_style = msg_style;
-	resp_msg.msg = message;
+	memcpy(&resp_msg.msg, &message, sizeof(resp_msg.msg));
+
 	msg[0] = &resp_msg;
 
 	/* grab the password */
 	retval = pam_get_item(pamh, PAM_CONV, (CONST void **) &conv);
 	PAM_FAIL_CHECK;
 
-	retval = conv->conv(1, msg, &resp,conv->appdata_ptr);
+	retval = conv->conv(1, msg, &resp, conv->appdata_ptr);
 	PAM_FAIL_CHECK;
 
 	if (password) {		/* assume msg.type needs a response */
@@ -1151,18 +1366,21 @@ static int rad_converse(pam_handle_t *pamh, int msg_style, char *message, char *
  **************************************************************************/
 
 #undef PAM_FAIL_CHECK
-#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { \
-	int *pret = malloc(sizeof(int)); \
-	*pret = retval;	\
-	pam_set_data(pamh, "rad_setcred_return", (void *) pret, _int_free);	\
-	return retval; }
+#define PAM_FAIL_CHECK \
+	if (retval != PAM_SUCCESS) { \
+		int *pret = malloc(sizeof(int)); \
+		*pret = retval;	\
+		pam_set_data(pamh, "rad_setcred_return", (void *) pret, _int_free);	\
+		return retval; \
+	}
 
-PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
+PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv)
 {
-	CONST char *user;
-	CONST char *userinfo;
+	CONST char *user = NULL;
+	CONST char *userinfo = NULL;
+	CONST char *old_password = NULL;
 	char *password = NULL;
-	CONST char *rhost;
+	CONST char *rhost = NULL;
 	char *resp2challenge = NULL;
 	int ctrl;
 	int debug;
@@ -1174,6 +1392,11 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	AUTH_HDR *request = (AUTH_HDR *) send_buffer;
 	AUTH_HDR *response = (AUTH_HDR *) recv_buffer;
 	radius_conf_t config;
+
+	/**
+	 *	It must be always printed out helping to know which version is in use.
+	 */
+	_pam_log(LOG_DEBUG, "%s", pam_module_version);
 
 	ctrl = _pam_parse(argc, argv, &config);
 	debug = config.debug;
@@ -1191,7 +1414,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		DPRINT(LOG_DEBUG, "User name was NULL, or too long");
 		return PAM_USER_UNKNOWN;
 	}
-	DPRINT(LOG_DEBUG, "Got user name %s", user);
+
+	DPRINT(LOG_DEBUG, "Got user name: '%s'", user);
 
 	if (ctrl & PAM_RUSER_ARG) {
 		retval = pam_get_item(pamh, PAM_RUSER, (CONST void **) &userinfo);
@@ -1224,23 +1448,22 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 	/* now we've got a socket open, so we've got to clean it up on error */
 #undef PAM_FAIL_CHECK
-#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {goto do_next; }
+#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { goto do_next; }
 
 	/* build and initialize the RADIUS packet */
-	request->code = PW_AUTHENTICATION_REQUEST;
+	request->code = PW_ACCESS_REQUEST;
 	get_random_vector(request->vector);
 	request->id = request->vector[0]; /* this should be evenly distributed */
 
 	/* grab the password (if any) from the previous authentication layer */
-        if (!config.force_prompt) {
-                DPRINT(LOG_DEBUG, "ignore last_pass, force_prompt set");
-		retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &password);
+	if (!config.force_prompt) {
+		DPRINT(LOG_DEBUG, "ignore last_pass, force_prompt set");
+		retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &old_password);
 		PAM_FAIL_CHECK;
-        }
+	}
 
-	if (password) {
-		password = strdup(password);
-		DPRINT(LOG_DEBUG, "Got password %s", password);
+	if (old_password) {
+		password = strdup(old_password);
 	}
 
 	/* no previous password: maybe get one from the user */
@@ -1261,6 +1484,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	} /* end of password == NULL */
 
 	build_radius_packet(request, user, password, &config);
+
 	/* not all servers understand this service type, but some do */
 	add_int_attribute(request, PW_USER_SERVICE_TYPE, PW_AUTHENTICATE_ONLY);
 
@@ -1273,16 +1497,15 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	retval = pam_get_item(pamh, PAM_RHOST, (CONST void **) &rhost);
 	PAM_FAIL_CHECK;
 	if (rhost) {
-		add_attribute(request, PW_CALLING_STATION_ID, (unsigned char *) rhost,
-			strlen(rhost));
+		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
-	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d", request->code);
+	DPRINT(LOG_DEBUG, "Sending RADIUS request code %d (%s)", request->code, get_packet_name(request->code));
 
-	retval = talk_radius(&config, request, response, password, NULL, config.retries + 1);
+	retval = talk_radius(&config, request, response, password, config.retries + 1);
 	PAM_FAIL_CHECK;
 
-	DPRINT(LOG_DEBUG, "Got RADIUS response code %d", response->code);
+	DPRINT(LOG_DEBUG, "Got RADIUS response code %d (%s)", response->code, get_packet_name(response->code));
 
 	/*
 	 *	If we get an authentication failure, and we sent a NULL password,
@@ -1294,7 +1517,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 	while (response->code == PW_ACCESS_CHALLENGE) {
 		attribute_t *a_state, *a_reply, *a_prompt;
 		char challenge[BUFFER_SIZE];
-        	int prompt;       
+    	int prompt;       
 
 		/* Now we do a bit more work: challenge the user, and get a response */
 		if (((a_state = find_attribute(response, PW_STATE)) == NULL) ||
@@ -1319,14 +1542,16 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 		/* It's full challenge-response, default to echo on, unless the server wants it off */
 		prompt = PAM_PROMPT_ECHO_ON;
-                if (config.prompt_attribute) {
+		if (config.prompt_attribute) {
 			if((a_prompt = find_attribute(response, PW_PROMPT)) != NULL){
 				uint32_t prompt_val_net = 0;
 				uint32_t prompt_val = 0;
+
 				memcpy((void *)&prompt_val_net, (void *) a_prompt->data, sizeof(uint32_t));
 				prompt_val = ntohl(prompt_val_net);
-				DPRINT(LOG_DEBUG, "Got Prompt=%d",prompt_val);
-				if(!prompt_val) prompt=PAM_PROMPT_ECHO_OFF;
+
+				DPRINT(LOG_DEBUG, "Got Prompt=%d", prompt_val);
+				if(!prompt_val) prompt = PAM_PROMPT_ECHO_OFF;
 			}
 		}
 
@@ -1335,18 +1560,17 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 
 		/* now that we've got a response, build a new radius packet */
 		build_radius_packet(request, user, resp2challenge, &config);
-		/* request->code is already PW_AUTHENTICATION_REQUEST */
+		/* request->code is already PW_ACCESS_REQUEST */
 		request->id++;		/* one up from the request */
 
 		if (rhost) {
-			add_attribute(request, PW_CALLING_STATION_ID, (unsigned char *) rhost,
-				      strlen(rhost));
+			add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 		}
 
 		/* copy the state over from the servers response */
 		add_attribute(request, PW_STATE, a_state->data, a_state->length - 2);
 
-		retval = talk_radius(&config, request, response, resp2challenge, NULL, 1);
+		retval = talk_radius(&config, request, response, resp2challenge, 1);
 		PAM_FAIL_CHECK;
 
 		DPRINT(LOG_DEBUG, "Got response to challenge code %d", response->code);
@@ -1364,8 +1588,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 		}
 	}
 
-	/* Whew! Done the pasword checks, look for an authentication acknowledge */
-	if (response->code == PW_AUTHENTICATION_ACK) {
+	/* Whew! Done the password checks, look for an authentication acknowledge */
+	if (response->code == PW_ACCESS_ACCEPT) {
 		retval = PAM_SUCCESS;
 
 		/* Read Management-Privilege-Level attribute from the response */
@@ -1403,7 +1627,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 			val = ntohl(*((int *)a_mpl->data));
 			sprintf(priv, "Privilege=%d", val);
 
-			/* Save Management-Privilege-Level value in PAM environment variable 'Privilige' */
+			/* Save Management-Privilege-Level value in PAM environment variable 'Privilege' */
 			retval = pam_putenv(pamh, priv);
 			if(retval != PAM_SUCCESS) {
 				_pam_log(LOG_ERR, "unable to set PAM environment variable : Privilege");
@@ -1416,7 +1640,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh,int flags,int argc,CONST c
 			char frameip[100];
 			struct in_addr ip_addr;
 
-			ip_addr.s_addr = *(int*) attr_fip->data;
+			memcpy(&ip_addr.s_addr, attr_fip->data, 4);
 
 			snprintf(frameip, sizeof(frameip), "Framed-IP-Address=%s", inet_ntoa(ip_addr));
 			retval = pam_putenv(pamh, frameip);
@@ -1438,11 +1662,11 @@ do_next:
 		pam_set_item(pamh, PAM_AUTHTOK, password);
 	}
 
-	DPRINT(LOG_DEBUG, "authentication %s", retval==PAM_SUCCESS ? "succeeded":"failed");
+	DPRINT(LOG_DEBUG, "authentication %s", retval == PAM_SUCCESS ? "succeeded":"failed");
 
 	close(config.sockfd);
-	if (config.sockfd6 >= 0)
-		close(config.sockfd6);
+	if (config.sockfd6 >= 0) close(config.sockfd6);
+	
 	cleanup(config.server);
 	_pam_forget(password);
 	_pam_forget(resp2challenge);
@@ -1460,20 +1684,20 @@ do_next:
  * (Always returning PAM_SUCCESS breaks other authentication modules;
  * always returning PAM_IGNORE breaks PAM when we're the only module.)
  */
-PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
+PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, UNUSED int flags, UNUSED int argc, UNUSED CONST char **argv)
 {
-	int retval, *pret;
+	int retval = PAM_SUCCESS;
+	const int *pret = &retval;
 
-	retval = PAM_SUCCESS;
-	pret = &retval;
 	pam_get_data(pamh, "rad_setcred_return", (CONST void **) &pret);
+
 	return *pret;
 }
 
 #undef PAM_FAIL_CHECK
 #define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) { return PAM_SESSION_ERR; }
 
-static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST char **argv, int status)
+static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, CONST char **argv, int status)
 {
 	CONST char *user;
 	CONST char *rhost;
@@ -1492,9 +1716,7 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 	PAM_FAIL_CHECK;
 
 	/* check that they've entered something, and not too long, either */
-	if ((user == NULL) || (strlen(user) > MAXPWNAM)) {
-		return PAM_USER_UNKNOWN;
-	}
+	if ((user == NULL) || (strlen(user) > MAXPWNAM)) return PAM_USER_UNKNOWN;
 
 	/*
 	 * Get the IP address of the authentication server
@@ -1526,7 +1748,7 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 	add_int_attribute(request, PW_ACCT_STATUS_TYPE, status);
 
 	sprintf(recv_buffer, "%08d", (int) getpid());
-	add_attribute(request, PW_ACCT_SESSION_ID, (unsigned char *) recv_buffer, strlen(recv_buffer));
+	add_attribute(request, PW_ACCT_SESSION_ID, (uint8_t *) recv_buffer, strlen(recv_buffer));
 
 	add_int_attribute(request, PW_ACCT_AUTHENTIC, PW_AUTH_RADIUS);
 
@@ -1535,8 +1757,9 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 		time(session_time);
 		pam_set_data(pamh, "rad_session_time", (void *) session_time, _int_free);
 	} else {
-		time_t *session_time;
-		retval = pam_get_data(pamh, "rad_session_time", (CONST void **) &session_time);
+		const time_t *session_time = NULL;
+
+		retval = pam_get_data(pamh, "rad_session_time", (CONST void **)&session_time);
 		PAM_FAIL_CHECK;
 
 		add_int_attribute(request, PW_ACCT_SESSION_TIME, time(NULL) - *session_time);
@@ -1551,11 +1774,10 @@ static int pam_private_session(pam_handle_t *pamh, int flags, int argc, CONST ch
 	retval = pam_get_item(pamh, PAM_RHOST, (CONST void **) &rhost);
 	PAM_FAIL_CHECK;
 	if (rhost) {
-		add_attribute(request, PW_CALLING_STATION_ID, (unsigned char *) rhost,
-			strlen(rhost));
+		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
-	retval = talk_radius(&config, request, response, NULL, NULL, 1);
+	retval = talk_radius(&config, request, response, NULL, 1);
 	PAM_FAIL_CHECK;
 
 	/* oops! They don't have the right password.	Complain and die. */
@@ -1586,257 +1808,25 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, CON
 	return pam_private_session(pamh, flags, argc, argv, PW_STATUS_STOP);
 }
 
-#undef PAM_FAIL_CHECK
-#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {return retval; }
-#define MAX_PASSWD_TRIES 3
-
-PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, CONST char **argv)
-{
-	CONST char *user;
-	char *password = NULL;
-	char *new_password = NULL;
-	char *check_password = NULL;
-	int ctrl;
-	int retval = PAM_AUTHTOK_ERR;
-	int attempts;
-
-	char recv_buffer[4096];
-	char send_buffer[4096];
-	AUTH_HDR *request = (AUTH_HDR *) send_buffer;
-	AUTH_HDR *response = (AUTH_HDR *) recv_buffer;
-	radius_conf_t config;
-
-	ctrl = _pam_parse(argc, argv, &config);
-
-	/* grab the user name */
-	retval = pam_get_user(pamh, &user, NULL);
-	PAM_FAIL_CHECK;
-
-	/* check that they've entered something, and not too long, either */
-	if ((user == NULL) || (strlen(user) > MAXPWNAM)) {
-		return PAM_USER_UNKNOWN;
-	}
-
-	/*
-	 * Get the IP address of the authentication server
-	 * Then, open a socket, and bind it to a port
-	 */
-	retval = initialize(&config, FALSE);
-	PAM_FAIL_CHECK;
-
-	/*
-	 * If there's no client id specified, use the service type, to help
-	 * keep track of which service is doing the authentication.
-	 */
-	if (!config.client_id) {
-		retval = pam_get_item(pamh, PAM_SERVICE, (CONST void **) &config.client_id);
-		PAM_FAIL_CHECK;
-	}
-
-	/* now we've got a socket open, so we've got to clean it up on error */
-#undef PAM_FAIL_CHECK
-#define PAM_FAIL_CHECK if (retval != PAM_SUCCESS) {goto error; }
-
-	/* grab the old password (if any) from the previous password layer */
-	retval = pam_get_item(pamh, PAM_OLDAUTHTOK, (CONST void **) &password);
-	PAM_FAIL_CHECK;
-	if (password) password = strdup(password);
-
-	/* grab the new password (if any) from the previous password layer */
-	retval = pam_get_item(pamh, PAM_AUTHTOK, (CONST void **) &new_password);
-	PAM_FAIL_CHECK;
-	if (new_password) new_password = strdup(new_password);
-
-	/* preliminary password change checks. */
-	if (flags & PAM_PRELIM_CHECK) {
-		if (!password) {		/* no previous password: ask for one */
-			retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF, config.prompt, &password);
-			PAM_FAIL_CHECK;
-		}
-
-		/*
-		 * We now check the password to see if it's the right one.
-		 * If it isn't, we let the user try again.
-		 * Note that RADIUS doesn't have any concept of 'root'.	The only way
-		 * that root can change someone's password is to log into the RADIUS
-		 * server, and and change it there.
-		 */
-
-		/* build and initialize the access request RADIUS packet */
-		request->code = PW_AUTHENTICATION_REQUEST;
-		get_random_vector(request->vector);
-		request->id = request->vector[0]; /* this should be evenly distributed */
-
-		build_radius_packet(request, user, password, &config);
-		add_int_attribute(request, PW_USER_SERVICE_TYPE, PW_AUTHENTICATE_ONLY);
-
-		retval = talk_radius(&config, request, response, password, NULL, 1);
-		PAM_FAIL_CHECK;
-
-		/* oops! They don't have the right password.	Complain and die. */
-		if (response->code != PW_AUTHENTICATION_ACK) {
-			_pam_forget(password);
-			retval = PAM_PERM_DENIED;
-			goto error;
-		}
-
-		/*
-		 * We're now sure it's the right user.
-		 * Ask for their new password, if appropriate
-		 */
-
-		if (!new_password) {	/* not found yet: ask for it */
-			int new_attempts;
-			attempts = 0;
-
-			/* loop, trying to get matching new passwords */
-			while (attempts++ < 3) {
-
-				/* loop, trying to get a new password */
-				new_attempts = 0;
-				while (new_attempts++ < 3) {
-					retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF,
-							"New password: ", &new_password);
-					PAM_FAIL_CHECK;
-
-					/* the old password may be short.	Check it, first. */
-					if (strcmp(password, new_password) == 0) { /* are they the same? */
-						rad_converse(pamh, PAM_ERROR_MSG,
-						 "You must choose a new password.", NULL);
-						_pam_forget(new_password);
-						continue;
-					} else if (strlen(new_password) < 6) {
-						rad_converse(pamh, PAM_ERROR_MSG, "it's WAY too short", NULL);
-						_pam_forget(new_password);
-						continue;
-					}
-
-					/* insert crypt password checking here */
-
-					break;		/* the new password is OK */
-				}
-
-				if (new_attempts >= 3) { /* too many new password attempts: die */
-					retval = PAM_AUTHTOK_ERR;
-					goto error;
-				}
-
-				/* make sure of the password by asking for verification */
-				retval = rad_converse(pamh, PAM_PROMPT_ECHO_OFF,
-						      "New password (again): ", &check_password);
-				PAM_FAIL_CHECK;
-
-				retval = strcmp(new_password, check_password);
-				_pam_forget(check_password);
-
-				/* if they don't match, don't pass them to the next module */
-				if (retval != 0) {
-					_pam_forget(new_password);
-					rad_converse(pamh, PAM_ERROR_MSG,
-								 "You must enter the same password twice.", NULL);
-					retval = PAM_AUTHTOK_ERR;
-					goto error;		/* ??? maybe this should be a 'continue' ??? */
-				}
-
-				break;			/* everything's fine */
-			}	/* loop, trying to get matching new passwords */
-
-			if (attempts >= 3) { /* too many new password attempts: die */
-				retval = PAM_AUTHTOK_ERR;
-				goto error;
-			}
-		} /* now we have a new password which passes all of our tests */
-
-		/*
-		 * Solaris 2.6 calls pam_sm_chauthtok only ONCE, with PAM_PRELIM_CHECK
-		 * set.
-		 */
-#ifndef sun
-		/* If told to update the authentication token, do so. */
-	} else if (flags & PAM_UPDATE_AUTHTOK) {
-#endif
-
-		if (!password || !new_password) { /* ensure we've got passwords */
-			retval = PAM_AUTHTOK_ERR;
-			goto error;
-		}
-
-		/* build and initialize the password change request RADIUS packet */
-		request->code = PW_PASSWORD_REQUEST;
-		get_random_vector(request->vector);
-		request->id = request->vector[0]; /* this should be evenly distributed */
-
-		/* the secret here can not be know to the user, so it's the new password */
-		_pam_forget(config.server->secret);
-		config.server->secret = strdup(password); /* it's free'd later */
-
-		build_radius_packet(request, user, new_password, &config);
-		add_password(request, PW_OLD_PASSWORD, password, password);
-
-		retval = talk_radius(&config, request, response, new_password, password, 1);
-		PAM_FAIL_CHECK;
-
-		/* Whew! Done password changing, check for password acknowledge */
-		if (response->code != PW_PASSWORD_ACK) {
-			retval = PAM_AUTHTOK_ERR;
-			goto error;
-		}
-	}
-
-	/*
-	 * Send the passwords to the next stage if preliminary checks fail,
-	 * or if the password change request fails.
-	 */
-	if ((flags & PAM_PRELIM_CHECK) || (retval != PAM_SUCCESS)) {
-	error:
-
-		/* If there was a password pass it to the next layer */
-		if (password && *password) {
-			pam_set_item(pamh, PAM_OLDAUTHTOK, password);
-		}
-
-		if (new_password && *new_password) {
-			pam_set_item(pamh, PAM_AUTHTOK, new_password);
-		}
-	}
-
-	if (ctrl & PAM_DEBUG_ARG) {
-		_pam_log(LOG_DEBUG, "password change %s", retval==PAM_SUCCESS ? "succeeded" : "failed");
-	}
-
-	close(config.sockfd);
-	if (config.sockfd6 >= 0)
-		close(config.sockfd6);
-	cleanup(config.server);
-
-	_pam_forget(password);
-	_pam_forget(new_password);
-	return retval;
-}
+#ifdef PAM_STATIC
 
 /*
  *	Do nothing for account management. This is apparently needed by
  *	some programs.
  */
-PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh,int flags,int argc,CONST char **argv)
+PAM_EXTERN int pam_sm_acct_mgmt(UNUSED pam_handle_t *pamh, UNUSED int flags, UNUSED int argc, UNUSED CONST char **argv)
 {
-	int retval;
-	retval = PAM_SUCCESS;
-	return retval;
+	return PAM_SUCCESS;
 }
 
-#ifdef PAM_STATIC
-
 /* static module data */
-
 struct pam_module _pam_radius_modstruct = {
-	"pam_radius_auth",
-	pam_sm_authenticate,
-	pam_sm_setcred,
-	pam_sm_acct_mgmt,
-	pam_sm_open_session,
-	pam_sm_close_session,
-	pam_sm_chauthtok,
+	.name = "pam_radius_auth",
+	.pam_sm_authenticate = pam_sm_authenticate,
+	.pam_sm_setcred = pam_sm_setcred,
+	.pam_sm_acct_mgmt = pam_sm_acct_mgmt,
+	.pam_sm_open_session = pam_sm_open_session,
+	.pam_sm_close_session = pam_sm_close_session,
+	.pam_sm_chauthtok = pam_sm_chauthtok,
 };
 #endif
-

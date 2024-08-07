@@ -55,20 +55,17 @@ typedef struct pw_auth_hdr {
 #define PW_TYPE_DATE			3
 
 
-#define	PW_AUTHENTICATION_REQUEST	1
-#define	PW_AUTHENTICATION_ACK		2
-#define	PW_AUTHENTICATION_REJECT	3
+#define	PW_ACCESS_REQUEST		1
+#define	PW_ACCESS_ACCEPT		2
+#define	PW_ACCESS_REJECT		3
 #define	PW_ACCOUNTING_REQUEST		4
 #define	PW_ACCOUNTING_RESPONSE		5
 #define	PW_ACCOUNTING_STATUS		6
-#define PW_PASSWORD_REQUEST		7
-#define PW_PASSWORD_ACK			8
-#define PW_PASSWORD_REJECT		9
 #define	PW_ACCOUNTING_MESSAGE		10
 #define PW_ACCESS_CHALLENGE		11
 
 #define	PW_USER_NAME			1
-#define	PW_PASSWORD			2
+#define	PW_USER_PASSWORD       		2
 #define	PW_CHAP_PASSWORD		3
 #define	PW_NAS_IP_ADDRESS	       	4
 #define	PW_NAS_PORT_ID			5
@@ -83,7 +80,6 @@ typedef struct pw_auth_hdr {
 #define	PW_LOGIN_HOST			14
 #define	PW_LOGIN_SERVICE		15
 #define	PW_LOGIN_TCP_PORT		16
-#define PW_OLD_PASSWORD			17
 #define PW_REPLY_MESSAGE		18
 #define PW_CALLBACK_NUMBER     		19
 #define PW_CALLBACK_ID			20
@@ -120,6 +116,9 @@ typedef struct pw_auth_hdr {
 #define PW_PORT_LIMIT                   62      /* integer */
 #define PW_LOGIN_LAT_PORT               63      /* string */
 #define PW_PROMPT                       76      /* integer */
+
+#define PW_MESSAGE_AUTHENTICATOR	80	/* octets */
+
 #define PW_MANAGEMENT_PRIVILEGE_LEVEL   136     /* integer */
 
 #define	PW_NAS_IPV6_ADDRESS	       	95	/* octets */
@@ -175,59 +174,5 @@ typedef struct pw_auth_hdr {
 #define PW_STATUS_START			1
 #define PW_STATUS_STOP			2
 #define PW_STATUS_ALIVE			3
-
-/* Default Database File Names */
-
-#define RADIUS_DIR		"/etc/raddb"
-#define RADACCT_DIR		"/usr/adm/radacct"
-
-#define RADIUS_DICTIONARY	"dictionary"
-#define RADIUS_CLIENTS		"clients"
-#define RADIUS_USERS		"users"
-#define RADIUS_HOLD		"holdusers"
-#define RADIUS_LOG		"logfile"
-
-/* Server data structures */
-
-typedef struct dict_attr {
-	char			name[32];
-	int			value;
-	int			type;
-	struct dict_attr	*next;
-} DICT_ATTR;
-
-typedef struct dict_value {
-	char			attrname[32];
-	char			name[32];
-	int			value;
-	struct dict_value	*next;
-} DICT_VALUE;
-
-typedef struct value_pair {
-	char			name[32];
-	int			attribute;
-	int			type;
-	uint32_t		lvalue;
-	char			strvalue[AUTH_STRING_LEN];
-	struct value_pair	*next;
-} VALUE_PAIR;
-
-typedef struct auth_req {
-	uint32_t		ipaddr;
-	uint16_t		udp_port;
-	uint8_t			id;
-	uint8_t			code;
-	uint8_t			vector[16];
-	uint8_t			secret[16];
-	VALUE_PAIR		*request;
-	int			child_pid;	/* Process ID of child */
-	uint32_t		timestamp;
-	struct auth_req		*next;		/* Next active request */
-} AUTH_REQ;
-
-#define SECONDS_PER_DAY		86400
-#define MAX_REQUEST_TIME	30
-#define CLEANUP_DELAY		5
-#define MAX_REQUESTS		100
 
 #endif /* RADIUS_H */

@@ -128,9 +128,6 @@
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
 
-/* Define to 1 if you have the <utmp.h> header file. */
-#undef HAVE_UTMP_H
-
 /* Define to the address where bug reports for this package should be sent. */
 #undef PACKAGE_BUGREPORT
 
@@ -237,3 +234,12 @@
 
 /* uint8_t should be the canonical 'octet' for network traffic */
 #undef uint8_t
+
+/* pam radius version */
+#undef PAM_RADIUS_VERSION_STRING
+
+/* pam radius commit hash */
+#undef PAM_RADIUS_VERSION_COMMIT
+
+/* pam radius release id */
+#undef PAM_RADIUS_VERSION_RELEASE

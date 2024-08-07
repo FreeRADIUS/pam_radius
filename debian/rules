@@ -1,0 +1,59 @@
+#!/usr/bin/make -f
+# @copyright 2021 Network RADIUS SAS (legal@networkradius.com)
+# Author: Jorge Pereira <jorge@networkradius.com>
+##
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/default.mk
+
+.NOTPARALLEL:
+
+export DEB_BUILD_MAINT_OPTIONS=hardening=+all
+
+# These are used for cross-compiling and for saving the configure script
+# from having to guess our platform (since we know it already)
+export DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+export DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# Let the make decide that!
+unexport CC
+
+ifeq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
+	confflags += --build $(DEB_HOST_GNU_TYPE)
+else
+	confflags += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+endif
+
+debian/%.install: debian/%.install.in
+	sed 's/@DEB_HOST_MULTIARCH@/$(DEB_HOST_MULTIARCH)/g' $< > $@
+
+%:
+	dh $@
+
+# Don't touch in our config.guess
+override_dh_update_autotools_config:
+
+# ... even the configure/aclocal
+override_dh_autoreconf:
+
+override_dh_gencontrol:
+	dh_gencontrol
+
+override_dh_auto_configure:
+	./configure $(confflags) \
+			--disable-developer 
+
+override_dh_auto_clean:
+	# work around some stupid logic in top level makefile
+	make -C src/ clean
+
+# Skip
+override_dh_auto_install: debian/libpam-radius-auth.install
+
+override_dh_fixperms:
+	dh_fixperms
+	chmod 600 debian/libpam-radius-auth/etc/pam_radius_auth.conf

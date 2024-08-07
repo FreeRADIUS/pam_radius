@@ -1,0 +1,281 @@
+name: "CI RPM"
+
+on:
+  push:
+    branches-ignore:
+      - coverity_scan
+  pull_request:
+
+env:
+  CI: 1
+  CI_TEST_USER: tapioca
+  CI_TEST_PASS: queijo
+  GH_ACTIONS: 1
+
+jobs:
+  pre-ci:
+    runs-on: ubuntu-latest
+    # Map a step output to a job output
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@master
+
+  rpm-build:
+    #  If branch protection is in place with status checks enabled, ensure
+    #  names are updated if new matrix entries are added or the name format
+    #  changes.
+    name: "RPM Build (${{ matrix.env.NAME }})"
+
+    needs: pre-ci
+    if: ${{ needs.pre-ci.outputs.should_skip != 'true' }}
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: ${{ matrix.env.OS }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - { "NAME": "centos-7", "OS": "centos:7",                      "DIST": "centos" }
+          - { "NAME": "centos-8", "OS": "centos:8",                      "DIST": "centos" }
+          - { "NAME": "rocky-8",  "OS": "rockylinux/rockylinux:8",       "DIST": "rocky"  }
+          - { "NAME": "rocky-9",  "OS": "rockylinux/rockylinux:9",       "DIST": "rocky"  }
+
+    steps:
+    - name: Extra repos for CentOS and Rocky Linux 8
+      if: ${{ matrix.env.NAME == 'centos-' || matrix.env.NAME == 'stream-8' || matrix.env.NAME == 'rocky-8' }}
+      run: |
+        echo '[ltb-project]'                                              >  /etc/yum.repos.d/ltb-project.repo
+        echo 'name=LTB project packages'                                  >> /etc/yum.repos.d/ltb-project.repo
+        echo 'baseurl=https://ltb-project.org/rpm/$releasever/$basearch'  >> /etc/yum.repos.d/ltb-project.repo
+        echo 'enabled=1'                                                  >> /etc/yum.repos.d/ltb-project.repo
+        echo 'gpgcheck=1'                                                 >> /etc/yum.repos.d/ltb-project.repo
+        echo 'gpgkey=https://www.ltb-project.org/documentation/_static/RPM-GPG-KEY-LTB-project' >> /etc/yum.repos.d/ltb-project.repo
+        rpm --import https://www.ltb-project.org/documentation/_static/RPM-GPG-KEY-LTB-project
+
+    #
+    # Centos9 is EOL, so we need the below tricks to get it to work.
+    #
+    # Converting from CentOS Linux 8 to CentOS Stream 8 is the "official" process
+    # (see centos.org/centos-stream/#centos-stream-8):
+    #
+    - name: Some hacks for CentOS 8 (EOL) to work again.
+      if: ${{ matrix.env.NAME == 'centos-8' }}
+      run: |
+        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
+        yum upgrade -y
+        yum -y --disablerepo '*' --enablerepo extras swap centos-linux-repos centos-stream-repos
+        yum clean all && yum makecache
+        yum distro-sync -y --allowerasing
+
+    - name: Enable EPEL for CentOS and Rocky Linux
+      if: ${{ startsWith(matrix.env.NAME, 'centos-') || startsWith(matrix.env.NAME, 'rocky-') }}
+      run: |
+        yum install -y epel-release
+
+    # Required so that the checkout action uses git protocol rather than the GitHub REST API.
+    # make rpm requires the FR directory to be a git repository.
+    - name: Install recent git for CentOS 7
+      if: ${{ matrix.env.NAME == 'centos-7' }}
+      run: |
+        yum install -y https://packages.endpointdev.com/rhel/7/os/x86_64/git-core-2.30.1-1.ep7.x86_64.rpm
+
+    - name: Install distro git for Rocky and CentOS 8.
+      if: ${{ startsWith(matrix.env.NAME, 'rocky-') || matrix.env.NAME == 'centos-8' }}
+      run: |
+        yum install -y git-core git
+
+    - name: Enable PowerTools / CRB
+      run: |
+        yum install -y yum-utils dnf-plugins-core
+        yum config-manager --enable PowerTools || :
+        yum config-manager --enable powertools || :
+        yum config-manager --enable crb || :
+
+    - name: Enable EPEL for Rocky Linux 9
+      if: ${{ matrix.env.NAME == 'rocky-9' }}
+      run: |
+        yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+    - name: Set up NetworkRADIUS extras repository
+      run: |
+        echo '[networkradius-extras]'                                                               >  /etc/yum.repos.d/networkradius-extras.repo
+        echo 'name=NetworkRADIUS-extras-$releasever'                                                >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'baseurl=http://packages.networkradius.com/extras/${{ matrix.env.DIST }}/$releasever/' >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'enabled=1'                                                                            >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'gpgcheck=1'                                                                           >> /etc/yum.repos.d/networkradius-extras.repo
+        echo 'gpgkey=https://packages.networkradius.com/pgp/packages@networkradius.com'             >> /etc/yum.repos.d/networkradius-extras.repo
+        rpm --import https://packages.networkradius.com/pgp/packages@networkradius.com
+
+    - name: Install common tools
+      run: |
+        yum install -y rpm-build openssl make gcc perl
+
+    - name: "Install common tools"
+      run: |
+        yum install -y \
+          yum-utils \
+          bzip2 \
+          gcc \
+          hostname \
+          make \
+          perl \
+          procps-ng \
+          rpm-build \
+          psmisc \
+          sudo
+
+    - uses: actions/checkout@v3
+      with:
+        path: pam_radius
+
+    # Build Package
+    - name: "Install build dependencies"
+      run: |
+        yum-builddep -y redhat/pam_radius_auth.spec
+      working-directory: pam_radius
+
+    - name: "Build RPMs"
+      run: |
+        [ -r /opt/rh/devtoolset-8/enable ] && source /opt/rh/devtoolset-8/enable || :
+        make rpm
+      working-directory: pam_radius
+
+    - name: "Collect RPMs"
+      run: |
+        mkdir -p rpms/
+        mv rpmbuild/RPMS/x86_64/*.rpm rpms/
+      working-directory: pam_radius
+
+    - name: "Install .rpm packages"
+      run: |
+        rpm -ivh rpms/pam*.rpm
+      working-directory: pam_radius
+
+    - name: "Show infos of the .rpm package"
+      run: |
+        rpm -qi pam_radius_auth
+
+    - name: "List content of the .rpm package"
+      run: |
+        rpm -qs pam_radius_auth
+
+    - name: "Create the CI_TEST_USER user in /etc/passwd (no-password)"
+      run: |
+        sudo useradd -d /tmp ${CI_TEST_USER}
+        id ${CI_TEST_USER}
+
+    - name: "Setup FreeRADIUS/SSHD/SYSLOG-NG/PAM then run full CI tests"
+      run: |
+        sudo yum -y update
+        sudo yum -y install \
+                freeradius freeradius-utils \
+                syslog-ng \
+                openssh-server sshpass
+
+        echo "#######################################################"
+        echo "## Stop the services syslog-ng/sshd/freeradius"
+        ( sudo rm -f /var/log/secure && \
+          sudo touch /var/log/secure && \
+          sudo chmod 600 /var/log/secure
+        )
+        sudo killall -q -9 syslog-ng radiusd sshd || :
+        # https://stackoverflow.com/questions/47973554/how-to-let-syslog-workable-in-docker
+        sudo sed -i 's/system()/# system()/g' /etc/syslog-ng/syslog-ng.conf
+        sudo /usr/sbin/syslog-ng --no-caps
+
+        echo "#######################################################"
+        echo "## Setup the services"
+        export CI_TEST_USER="$CI_TEST_USER" CI_TEST_PASS="$CI_TEST_PASS"
+        for i in setup-pam_radius.sh setup-freeradius.sh setup-sshd.sh; do
+            script="${PWD}/scripts/ci/$i"
+
+            echo "Calling $script"
+            sudo -E $script
+        done
+
+        echo "#######################################################"
+        echo "## Start the services sshd"
+        echo | sudo ssh-keygen -A
+        sudo /usr/sbin/sshd
+        sudo rm -f /run/nologin # Needed to enable the log in!
+
+        echo "## Start the services radiusd"
+        ( sudo make -C /etc/raddb/certs/ destroycerts all && \
+          sudo sed 's/dh_file =/#dh_file =/g' -i /etc/raddb/mods-available/eap && \
+          sudo chmod 0644 /etc/raddb/certs/server.pem
+        )
+        sudo /usr/sbin/radiusd
+
+        echo "#######################################################"
+        echo "## Show processes"
+        ps aux | grep -E "([r]adius|[s]sh|[s]yslog)"
+      working-directory: pam_radius
+
+    - name: "Content of /etc/ssh/sshd_config"
+      run: |
+        sudo cat /etc/ssh/sshd_config
+
+    - name: "Content of /etc/pam.d/sshd"
+      run: |
+        sudo cat /etc/pam.d/sshd
+
+    - name: "Content of /etc/pam_radius_auth.conf"
+      run: |
+        sudo cat /etc/pam_radius_auth.conf
+
+    - name: "Validate freeradius instance using radtest"
+      run: |
+        radtest -x $CI_TEST_USER $CI_TEST_PASS localhost 0 testing123
+
+    - name: "Run ssh authorization over pam_radius"
+      run: |
+        if ! sshpass -p "${CI_TEST_PASS}" -v \
+          /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost id; then
+            echo "ERROR: Something goes wrong with the SSH + PAM_RADIUS authentication!"
+            echo "############## Show the logs in /var/log/secure"
+            sudo tail -35 /var/log/secure
+            exit 1
+        fi
+
+    - name: "Looking for 'pam_radius_auth: authentication succeeded' in /var/log/secure"
+      run: |
+        echo "#######################################################"
+        echo "## Show the logs in /var/log/secure"
+        sudo cat -n /var/log/secure
+
+        # if ! grep -q "pam_radius_auth: authentication succeeded" /var/log/secure; then
+        #   echo "ERROR: Something goes wrong with the SSH + PAM_RADIUS authentication!"
+        #   exit 1
+        # fi
+
+    #
+    #  If the CI has failed and the branch is ci-debug then we start a tmate
+    #  session to provide interactive shell access to the session.
+    #
+    #  The SSH rendezvous point will be emitted continuously in the job output,
+    #  which will look something like:
+    #
+    #      SSH: ssh VfuX8SrNuU5pGPMyZcz7TpJTa@sfo2.tmate.io
+    #
+    #  For example:
+    #
+    #      git push origin ci-debug --force
+    #
+    #  Look at the job output in: https://github.com/FreeRADIUS/freeradius-server/actions
+    #
+    #      ssh VfuX8SrNuU5pGPMyZcz7TpJTa@sfo2.tmate.io
+    #
+    #  Access requires that you have the private key corresponding to the
+    #  public key of the GitHub user that initiated the job.
+    #
+    - name: "Debug: Start tmate"
+      uses: mxschmitt/action-tmate@v3
+      with:
+        limit-access-to-actor: true
+      if: ${{ github.ref == 'refs/heads/ci-debug' && failure() }}

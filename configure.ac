@@ -23,10 +23,15 @@ dnl #############################################################
 AC_PREREQ([2.59])
 export CFLAGS LIBS LDFLAGS CPPFLAGS
 
-AC_INIT([pam_radius],1.5,[http://bugs.freeradius.org],,[http://www.freeradius.org])
+AC_INIT([pam_radius],$Id$,[https://github.com/FreeRADIUS/pam_radius/issues],,[http://www.freeradius.org])
 AC_CONFIG_SRCDIR([src/pam_radius_auth.c])
 AC_CONFIG_HEADER([src/config.h])
 m4_include([m4/ax_cc.m4])
+
+dnl #
+dnl #  See if we have Git.
+dnl #
+AC_CHECK_PROG(GIT, git, yes, no)
 
 dnl #############################################################
 dnl #
@@ -101,8 +106,102 @@ dnl #
 dnl #  Set Default CFLAGS for GCC compatible compilers
 dnl #
 if test "x$GCC" = "xyes"; then
-  CFLAGS="$CFLAGS -Wall -D_GNU_SOURCE"
+  CFLAGS="$CFLAGS -Wall -std=c99 -D_GNU_SOURCE"
 fi
+
+dnl #
+dnl #  Enable developer features like debugging symbols.
+dnl #  These checks must be done before expanding the AC_PROG_CC
+dnl #  and AC_PROG_CXX macros.
+dnl #
+AC_ARG_ENABLE(developer,
+[  --enable-developer      enables features of interest to developers.],
+[ case "$enableval" in
+  no)
+    developer=no
+    ;;
+  *)
+    developer=yes
+  esac ]
+)
+
+dnl #
+dnl #  Turn on the developer flag when taken from a git checkout (not a release)
+dnl #
+if test "x$GIT" = "xyes" && git status 2>&1 > /dev/null; then
+  if test "x$PAM_RADIUS_VERSION_RELEASE" = "x"; then
+    AC_MSG_CHECKING([build release])
+    PAM_RADIUS_VERSION_RELEASE=`git describe | sed -e 's/^.*-\([[0-9]]*\)-g[[0-9a-f]]*/\1/'`
+    AC_MSG_RESULT($PAM_RADIUS_VERSION_RELEASE)
+  fi
+
+  if test "x$PAM_RADIUS_VERSION_COMMIT" = "x"; then
+    AC_MSG_CHECKING([build commit])
+    PAM_RADIUS_VERSION_COMMIT=`git rev-parse --short=8 HEAD`
+    AC_MSG_RESULT($PAM_RADIUS_VERSION_COMMIT)
+  fi
+
+  if test "x$developer" != "xno"; then
+    AC_MSG_NOTICE([in git repository, enabling developer build implicitly, disable with --disable-developer])
+    developer="yes"
+  fi
+fi
+
+if test "x$PAM_RADIUS_VERSION_RELEASE" != "x"; then
+  AC_DEFINE_UNQUOTED([PAM_RADIUS_VERSION_RELEASE],["${PAM_RADIUS_VERSION_RELEASE}"],[Version release number at time of configuring])
+fi
+
+if test "x$PAM_RADIUS_VERSION_COMMIT" != "x"; then
+  AC_DEFINE_UNQUOTED([PAM_RADIUS_VERSION_COMMIT],["${PAM_RADIUS_VERSION_COMMIT}"],[Commit HEAD at time of configuring])
+fi
+
+dnl #
+dnl #  Enable the -fsanitize=address and link in the address sanitizer
+dnl #  libraries.
+dnl #
+AC_ARG_ENABLE(address-sanitizer,
+[AS_HELP_STRING([--enable-address-sanitizer],
+                [build with support for address sanitizer.])],
+[ case "$enableval" in
+  no)
+    address_sanitizer=no
+    ;;
+  *)
+    address_sanitizer=yes
+  esac ]
+)
+
+dnl #
+dnl #  Enable -fsanitize=leak and link in the leak sanitizer
+dnl #  libraries.
+dnl #
+AC_ARG_ENABLE(leak-sanitizer,
+[AS_HELP_STRING([--enable-leak-sanitizer],
+                [build with support for leak sanitizer.])],
+[ case "$enableval" in
+  no)
+    leak_sanitizer=no
+    ;;
+  *)
+    leak_sanitizer=yes
+  esac ]
+)
+
+dnl #
+dnl #  Enable the -fsanitize=undefined and link in the address sanitizer
+dnl #  libraries.
+dnl #
+AC_ARG_ENABLE(undefined-behaviour-sanitizer,
+[AS_HELP_STRING([--enable-undefined-behaviour-sanitizer],
+                [build with support for undefined behaviour sanitizer.])],
+[ case "$enableval" in
+  no)
+    undefined_behaviour_sanitizer=no
+    ;;
+  *)
+    undefined_behaviour_sanitizer=yes
+  esac ]
+)
 
 dnl #
 dnl #  -Qunused-arguments means the compiler won't complain about unsupported arguments
@@ -175,8 +274,7 @@ AC_CHECK_HEADERS( \
 	syslog.h \
 	poll.h \
 	time.h \
-	unistd.h \
-	utmp.h
+	unistd.h
 )
 
 AC_CHECK_HEADERS(security/pam_appl.h pam/pam_appl.h)
@@ -349,6 +447,141 @@ dnl #  Ensure that these are defined
 dnl #
 AC_C_CONST
 
+
+
+
+if test "x$developer" = "xyes"; then
+  AC_MSG_NOTICE([Setting additional developer CFLAGS])
+
+  dnl #
+  dnl #  If we have -Weverything, it really means *everything* unlike -Wall
+  dnl #  It's so verbose we need to turn off warnings which aren't useful.
+  dnl #
+  AX_CC_WEVERYTHING_FLAG
+  if test "x$ax_cv_cc_weverything_flag" = "xyes"; then
+    devcflags="$devcflags \
+      -W \
+      -Weverything \
+      -Wformat=2 \
+      -Wno-date-time \
+      -Wno-disabled-macro-expansion \
+      -Wno-format-pedantic \
+      -Wno-missing-field-initializers \
+      -Wno-cast-align \
+      -Wno-conversion \
+      -Wno-covered-switch-default \
+      -Wno-documentation-unknown-command \
+      -Wno-invalid-offsetof \
+      -Wno-gnu-empty-initializer \
+      -Wno-gnu-statement-expression \
+      -Wno-gnu-zero-variadic-macro-arguments \
+      -Wno-packed \
+      -Wno-padded \
+      -Wno-poison-system-directories \
+      -Wno-reserved-id-macro \
+      -Wno-shorten-64-to-32 \
+      -Wno-sign-conversion \
+      -Wno-switch-enum \
+      -Wno-vla"
+  else
+    if test "x$GCC" = "xyes"; then
+      devcflags="$devcflags \
+        -W \
+        -Wall \
+        -Wcast-align \
+        -Wcast-qual \
+        -Wformat-nonliteral \
+        -Wformat-security \
+        -Wformat-y2k \
+        -Wformat=2 \
+        -Wmissing-declarations \
+        -Wmissing-prototypes \
+        -Wnested-externs \
+        -Wno-cast-align \
+        -Wno-format-extra-args \
+        -Wno-format-zero-length \
+        -Wno-missing-field-initializers \
+        -Wpointer-arith \
+        -Wredundant-decls \
+        -Wshadow \
+        -Wstrict-prototypes \
+        -Wundef \
+        -Wwrite-strings"
+      INSTALLSTRIP=""
+    fi
+  fi
+
+  dnl #
+  dnl #  Tell the compiler to parse doxygen documentation and verify it against function and variable declarations
+  dnl #
+  AX_CC_WDOCUMENTATION_FLAG
+  if test "x$ax_cv_cc_wdocumentation_flag" = "xyes"; then
+    devcflags="$devcflags -Wdocumentation"
+    AC_DEFINE([HAVE_WDOCUMENTATION],1,[Define if the compiler supports -Wdocumentation])
+  fi
+
+  dnl #
+  dnl #  Older versions of GCC don't support this, but 7 seems to
+  dnl #
+  AX_CC_IMPLICIT_FALLTHROUGH_FLAG
+  if test "x$ax_cv_cc_wimplicit_fallthrough_flag" = "xyes"; then
+    devcflags="$devcflags -Wimplicit-fallthrough"
+  fi
+
+  dnl #
+  dnl #  Can't use multiple -fsanitize flags, so we need to combine
+  dnl #  the values into one.
+  dnl #
+  fsanitizeflags=
+
+  dnl #
+  dnl #  Add in ASAN
+  dnl #
+  if test "x$address_sanitizer" = "xyes"; then
+    dnl #
+    dnl #  -fsanitize=address   - Build with address sanitizer support
+    dnl #  -fno-omit-frame-pointer  - Always keep the frame pointer in a register
+    dnl #  -fno-optimize-sibling-calls  - Don't optimize away tail recursion.
+    dnl #
+    devcflags="$devcflags -fno-omit-frame-pointer -fno-optimize-sibling-calls"
+
+    AC_CHECK_HEADERS(sanitizer/lsan_interface.h)
+    fsanitizeflags="$fsanitizeflags,address"
+  fi
+
+  dnl #
+  dnl #  Add in LSAN
+  dnl #
+  if test "x$leak_sanitizer" = "xyes"; then
+    dnl #
+    dnl #  -fsanitize=leak  - Build with lsan support
+    dnl #
+    fsanitizeflags="$fsanitizeflags,leak"
+  fi
+
+  dnl #
+  dnl # Clean the flags up
+  dnl #
+  devcflags="$(echo $devcflags | sed -e 's/\\t//g;s/  //g')"
+  devldflags="$(echo $devldflags | sed -e 's/\\t//g;s/  //g')"
+
+  AC_MSG_NOTICE([Developer CFLAGS are "$devcflags"])
+  AC_MSG_NOTICE([Developer LDFLAGS are "$devldflags"])
+
+  dnl #
+  dnl #  Enable experimental modules (we want to know if code changes breaks one of them)
+  dnl #
+  if test "x$EXPERIMENTAL" != "xno"; then
+    AC_MSG_NOTICE([is developer build, enabling experimental modules implicitly, disable with --without-experimental-modules])
+    EXPERIMENTAL=yes
+  fi
+else
+  devcflags=""
+  devldflags=""
+  CFLAGS="$CFLAGS -DNDEBUG"
+  INSTALLSTRIP=""
+fi
+
 dnl #
 dnl #  Tell the compiler to parse doxygen documentation and verify it against function and variable declarations
 dnl #
@@ -376,8 +609,11 @@ dnl #  Add -Werror last, so it doesn't interfere with autoconf's
 dnl #  test programs.
 dnl #
 dnl #############################################################
+CFLAGS="$CFLAGS $devcflags"
+LDFLAGS="$LDFLAGS $devldflags"
 if test "x$werror" = "xyes"; then
   CFLAGS="-Werror $CFLAGS"
 fi
+
 AC_SUBST(LIBS)
-AC_OUTPUT()
+AC_OUTPUT(Make.inc)

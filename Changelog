@@ -1,3 +1,15 @@
+pam_radius_auth 2.0.1 Wed 10 Nov 2021 12:00:00 EDT urgency=low
+	Feature improvements
+	* RPM and DEB packages can be built from the source.
+	  Just do "make rpm" or "make deb".
+	* Add continuous integration (CI) tests
+	* Configuration is now in /etc/pam_radius_auth.conf
+
+	Bug fixes
+	* All known and reported bugs have been fixed.
+	* Ignore packets from unknown sources.  Based on patches
+	  from Alex Malowany.
+
 2.0.0 - 21 July 2020
 	* Add IPv6 support
 	* environment variable attribute Framed-IP-Address when present
