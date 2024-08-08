@@ -27,131 +27,173 @@ jobs:
     #  If branch protection is in place with status checks enabled, ensure
     #  names are updated if new matrix entries are added or the name format
     #  changes.
-    name: "DEB Build (ubuntu-20.04)"
+    name: "DEB Build (${{ matrix.env.NAME }})"
 
     needs: pre-ci
     if: ${{ needs.pre-ci.outputs.should_skip != 'true' }}
 
-    runs-on: "ubuntu-20.04"
+    runs-on: ubuntu-latest
+
+    container:
+      image: ${{ matrix.env.OS }}
 
     strategy:
       fail-fast: false
+      matrix:
+        env:
+          - { "NAME": "ubuntu20", "OS": "ubuntu:20.04", "DIST": "ubuntu" }
+          - { "NAME": "ubuntu22", "OS": "ubuntu:22.04", "DIST": "ubuntu" }
+          - { "NAME": "ubuntu24", "OS": "ubuntu:24.04", "DIST": "ubuntu" }
+          - { "NAME": "debian10", "OS": "debian:10",    "DIST": "debian" }
+          - { "NAME": "debian11", "OS": "debian:11",    "DIST": "debian" }
+          - { "NAME": "debian12", "OS": "debian:12",    "DIST": "debian" }
 
     steps:
 
-    # Checkout, but defer pulling LFS objects until we've restored the cache
-    - uses: actions/checkout@v2
-      with:
-        lfs: false
-
     - name: "Package manager performance improvements"
       run: |
-        sudo sh -c 'echo force-unsafe-io > /etc/dpkg/dpkg.cfg.d/02speedup'
-        echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections
-        sudo dpkg-reconfigure man-db
-        sudo sed -i 's/^update_initramfs=.*/update_initramfs=no/' /etc/initramfs-tools/update-initramfs.conf
+        sh -c 'echo force-unsafe-io > /etc/dpkg/dpkg.cfg.d/02speedup'
 
-    - name: "Install build dependencies based CI packages"
+    - name: "Install prerequisites"
       run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends build-essential devscripts equivs quilt libpam0g-dev sshpass
-        sudo mk-build-deps -irt"apt-get -y --no-install-recommends" scripts/ci/extra-packages.debian.control
+        apt-get update
+        apt-get install -y --no-install-recommends \
+                    build-essential \
+                    devscripts \
+                    equivs \
+                    fakeroot \
+                    quilt \
+                    libpam0g-dev
 
-    - name: "Set compiler to GCC 10"
+    - uses: actions/checkout@v4
+      with:
+        lfs: false
+        path: pam_radius
+
+    - name: "Install build dependencies"
+      working-directory: pam_radius
       run: |
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 && sudo update-alternatives --set gcc /usr/bin/gcc-10
+        mk-build-deps -irt"apt-get -y --no-install-recommends" scripts/ci/extra-packages.debian.control
 
-    - name: "Build DEBs"
+    - name: "Build pam_radius packages"
+      working-directory: pam_radius
       run: |
         make deb
 
-    - name: "Install .deb packages"
+    - name: "Install pam_radius package"
       run: |
-        sudo dpkg -i ../libpam*deb
+        echo "#######################################################"
+        echo "# Install package"
+        dpkg -i libpam-radius-auth_*.deb
 
-    - name: "Show infos of the .deb package"
-      run: |
-        sudo dpkg -s libpam-radius-auth
+        echo "#######################################################"
+        echo "# Show package info"
+        dpkg -s libpam-radius-auth
 
-    - name: "List content of the .deb package"
-      run: |
-        sudo dpkg -L libpam-radius-auth
+        echo "#######################################################"
+        echo "# List package contents"
+        dpkg -L libpam-radius-auth
 
-    - name: "Create the CI_TEST_USER user in /etc/passwd (no-password)"
+    - name: "Create test user"
       run: |
-        sudo useradd -d /tmp ${CI_TEST_USER}
+        useradd -d /tmp ${CI_TEST_USER}
         id ${CI_TEST_USER}
 
-    - name: "Setup FreeRADIUS/SSHD/SYSLOG-NG/PAM then run full CI tests"
+    - name: "Install packages for testing"
       run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-                          freeradius freeradius-utils freeradius-config \
-                          syslog-ng \
-                          openssh-server sshpass
+        apt-get update
+        apt-get install -y --no-install-recommends \
+                    freeradius \
+                    freeradius-utils \
+                    freeradius-config \
+                    openssh-server \
+                    rsyslog \
+                    sshpass
+
+    - name: "Setup FreeRADIUS, sshd, rsyslog and PAM"
+      working-directory: pam_radius
+      run: |
+        echo "#######################################################"
+        echo "# Kill services"
+        pkill -9 rsyslogd || :
+        pkill -9 freeradius || :
+        pkill -9 sshd || :
 
         echo "#######################################################"
-        echo "## Stop the services syslog-ng/sshd/freeradius"
-        sudo rm -f /var/log/auth.log # Needed to see the last results
-        sudo systemctl restart syslog-ng
-        sudo systemctl stop ssh
-        sudo systemctl stop freeradius
-
-        echo "#######################################################"
-        echo "## Setup the services"
+        echo "# Run setup scripts"
         export CI_TEST_USER="$CI_TEST_USER" CI_TEST_PASS="$CI_TEST_PASS"
-        for i in setup-pam_radius.sh setup-freeradius.sh setup-sshd.sh; do
-            script="./scripts/ci/$i"
+        for FILE in setup-rsyslog.sh setup-pam_radius.sh setup-freeradius.sh setup-sshd.sh; do
+            SCRIPT="${PWD}/scripts/ci/$FILE"
 
-            echo "Calling $i"
-            sudo -E $script
+            echo "Calling $FILE"
+            $SCRIPT
         done
 
         echo "#######################################################"
-        echo "## Start the services syslog-ng/sshd/freeradius"
-        sudo systemctl start ssh
-        sudo systemctl start freeradius
+        echo "# Start services"
+        /usr/sbin/rsyslogd
+        /usr/sbin/sshd
+        /usr/sbin/freeradius
 
         echo "#######################################################"
-        echo "## Show processes"
-        ps aux | grep -E "([r]adius|[s]sh|[s]yslog)"
+        echo "# Show processes"
+        ps -ef
 
-    - name: "Content of /etc/ssh/sshd_config"
+    - name: "Show config files"
       run: |
-        sudo cat /etc/ssh/sshd_config
+        for FILE in \
+            /etc/ssh/sshd_config \
+            /etc/pam.d/sshd \
+            /etc/pam_radius_auth.conf
+        do
+          echo "#####################################################"
+          echo "# $FILE"
+          echo
+          cat "$FILE"
+          echo
+        done
 
-    - name: "Content of /etc/pam.d/sshd"
+    - name: "Positive authentication tests"
       run: |
-        sudo cat /etc/pam.d/sshd
+        : > /var/log/auth.log
 
-    - name: "Content of /etc/pam_radius_auth.conf"
+        radtest -x "$CI_TEST_USER" "$CI_TEST_PASS" localhost 0 testing123
+
+        sshpass -p "${CI_TEST_PASS}" -v \
+            /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost \
+            "echo 'User logged in successfully' > /tmp/OK"
+        cat /tmp/OK
+
+        grep -q "pam_radius_auth: authentication succeeded" /var/log/auth.log
+        ! grep -q "pam_radius_auth: authentication failed" /var/log/auth.log
+
+    - name: "Show positive auth logs"
       run: |
-        sudo cat /etc/pam_radius_auth.conf
+        cat -n /var/log/auth.log
 
-    - name: "Validate freeradius instance using radtest"
+    - name: "Negative authentication tests"
       run: |
-        radtest -x $CI_TEST_USER $CI_TEST_PASS localhost 0 testing123
+        : > /var/log/auth.log
 
-    - name: "Run ssh authorization over pam_radius"
-      run: |
-        if ! sshpass -p "${CI_TEST_PASS}" -v \
-          /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost id; then
-            echo "ERROR: Something goes wrong with the SSH + PAM_RADIUS authentication!"
-            echo "############## Show the logs in /var/log/auth.log"
-            sudo tail -35 /var/log/auth.log
-            exit 1
-        fi
-
-    - name: "Looking for 'pam_radius_auth: authentication succeeded' in /var/log/auth.log"
-      run: |
-        echo "#######################################################"
-        echo "## Show the logs in /var/log/auth.log"
-        sudo cat -n /var/log/auth.log
-
-        if ! sudo grep -q "pam_radius_auth: authentication succeeded" /var/log/auth.log; then
-          echo "ERROR: Something goes wrong with the SSH + PAM_RADIUS authentication!"
+        if radtest -x "$CI_TEST_USER" "not$CI_TEST_PASS" localhost 0 testing123; then
+          echo "Something bad happened - this radtest authentication should have failed"
           exit 1
         fi
+
+        if sshpass -p "not$CI_TEST_PASS" -v \
+            /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost \
+            "echo NOTOK > /tmp/NOTOK"; then
+          echo "Something bad happened - this ssh authentication should have failed"
+          exit 1
+        fi
+
+        grep -q "pam_radius_auth: authentication failed" /var/log/auth.log
+        ! grep -q "pam_radius_auth: authentication succeeded" /var/log/auth.log
+
+    - name: "Show negative auth logs"
+      if: ${{ success() || failure() }}
+      run: |
+        cat -n /var/log/auth.log
 
     #
     #  If the CI has failed and the branch is ci-debug then we start a tmate

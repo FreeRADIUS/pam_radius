@@ -40,219 +40,161 @@ jobs:
       fail-fast: false
       matrix:
         env:
-          - { "NAME": "centos-7", "OS": "centos:7",                      "DIST": "centos" }
-          - { "NAME": "centos-8", "OS": "centos:8",                      "DIST": "centos" }
           - { "NAME": "rocky-8",  "OS": "rockylinux/rockylinux:8",       "DIST": "rocky"  }
           - { "NAME": "rocky-9",  "OS": "rockylinux/rockylinux:9",       "DIST": "rocky"  }
 
     steps:
-    - name: Extra repos for CentOS and Rocky Linux 8
-      if: ${{ matrix.env.NAME == 'centos-' || matrix.env.NAME == 'stream-8' || matrix.env.NAME == 'rocky-8' }}
-      run: |
-        echo '[ltb-project]'                                              >  /etc/yum.repos.d/ltb-project.repo
-        echo 'name=LTB project packages'                                  >> /etc/yum.repos.d/ltb-project.repo
-        echo 'baseurl=https://ltb-project.org/rpm/$releasever/$basearch'  >> /etc/yum.repos.d/ltb-project.repo
-        echo 'enabled=1'                                                  >> /etc/yum.repos.d/ltb-project.repo
-        echo 'gpgcheck=1'                                                 >> /etc/yum.repos.d/ltb-project.repo
-        echo 'gpgkey=https://www.ltb-project.org/documentation/_static/RPM-GPG-KEY-LTB-project' >> /etc/yum.repos.d/ltb-project.repo
-        rpm --import https://www.ltb-project.org/documentation/_static/RPM-GPG-KEY-LTB-project
 
-    #
-    # Centos9 is EOL, so we need the below tricks to get it to work.
-    #
-    # Converting from CentOS Linux 8 to CentOS Stream 8 is the "official" process
-    # (see centos.org/centos-stream/#centos-stream-8):
-    #
-    - name: Some hacks for CentOS 8 (EOL) to work again.
-      if: ${{ matrix.env.NAME == 'centos-8' }}
-      run: |
-        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
-        yum upgrade -y
-        yum -y --disablerepo '*' --enablerepo extras swap centos-linux-repos centos-stream-repos
-        yum clean all && yum makecache
-        yum distro-sync -y --allowerasing
-
-    - name: Enable EPEL for CentOS and Rocky Linux
-      if: ${{ startsWith(matrix.env.NAME, 'centos-') || startsWith(matrix.env.NAME, 'rocky-') }}
-      run: |
-        yum install -y epel-release
-
-    # Required so that the checkout action uses git protocol rather than the GitHub REST API.
-    # make rpm requires the FR directory to be a git repository.
-    - name: Install recent git for CentOS 7
-      if: ${{ matrix.env.NAME == 'centos-7' }}
-      run: |
-        yum install -y https://packages.endpointdev.com/rhel/7/os/x86_64/git-core-2.30.1-1.ep7.x86_64.rpm
-
-    - name: Install distro git for Rocky and CentOS 8.
-      if: ${{ startsWith(matrix.env.NAME, 'rocky-') || matrix.env.NAME == 'centos-8' }}
-      run: |
-        yum install -y git-core git
-
-    - name: Enable PowerTools / CRB
-      run: |
-        yum install -y yum-utils dnf-plugins-core
-        yum config-manager --enable PowerTools || :
-        yum config-manager --enable powertools || :
-        yum config-manager --enable crb || :
-
-    - name: Enable EPEL for Rocky Linux 9
-      if: ${{ matrix.env.NAME == 'rocky-9' }}
-      run: |
-        yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-
-    - name: Set up NetworkRADIUS extras repository
-      run: |
-        echo '[networkradius-extras]'                                                               >  /etc/yum.repos.d/networkradius-extras.repo
-        echo 'name=NetworkRADIUS-extras-$releasever'                                                >> /etc/yum.repos.d/networkradius-extras.repo
-        echo 'baseurl=http://packages.networkradius.com/extras/${{ matrix.env.DIST }}/$releasever/' >> /etc/yum.repos.d/networkradius-extras.repo
-        echo 'enabled=1'                                                                            >> /etc/yum.repos.d/networkradius-extras.repo
-        echo 'gpgcheck=1'                                                                           >> /etc/yum.repos.d/networkradius-extras.repo
-        echo 'gpgkey=https://packages.networkradius.com/pgp/packages@networkradius.com'             >> /etc/yum.repos.d/networkradius-extras.repo
-        rpm --import https://packages.networkradius.com/pgp/packages@networkradius.com
-
-    - name: Install common tools
-      run: |
-        yum install -y rpm-build openssl make gcc perl
-
-    - name: "Install common tools"
+    - name: "Install prerequisites"
       run: |
         yum install -y \
-          yum-utils \
           bzip2 \
           gcc \
+          git \
+          git-core \
           hostname \
           make \
+          openssl \
           perl \
           procps-ng \
-          rpm-build \
           psmisc \
-          sudo
+          rpm-build \
+          yum-utils
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
+        lfs: false
         path: pam_radius
 
-    # Build Package
     - name: "Install build dependencies"
+      working-directory: pam_radius
       run: |
         yum-builddep -y redhat/pam_radius_auth.spec
-      working-directory: pam_radius
 
-    - name: "Build RPMs"
+    - name: "Build pam_radius packages"
+      working-directory: pam_radius
       run: |
-        [ -r /opt/rh/devtoolset-8/enable ] && source /opt/rh/devtoolset-8/enable || :
         make rpm
-      working-directory: pam_radius
 
-    - name: "Collect RPMs"
+    - name: "Install pam_radius package"
       run: |
-        mkdir -p rpms/
-        mv rpmbuild/RPMS/x86_64/*.rpm rpms/
-      working-directory: pam_radius
+        echo "#######################################################"
+        echo "# Install package"
+        rpm -ivh pam_radius/rpmbuild/RPMS/x86_64/pam*.rpm
 
-    - name: "Install .rpm packages"
-      run: |
-        rpm -ivh rpms/pam*.rpm
-      working-directory: pam_radius
-
-    - name: "Show infos of the .rpm package"
-      run: |
+        echo "#######################################################"
+        echo "# Show package info"
         rpm -qi pam_radius_auth
 
-    - name: "List content of the .rpm package"
-      run: |
+        echo "#######################################################"
+        echo "# List package contents"
         rpm -qs pam_radius_auth
 
-    - name: "Create the CI_TEST_USER user in /etc/passwd (no-password)"
+    - name: "Create test user"
       run: |
-        sudo useradd -d /tmp ${CI_TEST_USER}
+        useradd -d /tmp ${CI_TEST_USER}
         id ${CI_TEST_USER}
 
-    - name: "Setup FreeRADIUS/SSHD/SYSLOG-NG/PAM then run full CI tests"
+    - name: "Install packages for testing"
       run: |
-        sudo yum -y update
-        sudo yum -y install \
-                freeradius freeradius-utils \
-                syslog-ng \
-                openssh-server sshpass
+        yum -y update
+        yum -y install \
+                    freeradius \
+                    freeradius-utils \
+                    openssh-server \
+                    rsyslog \
+                    sshpass
+
+    - name: "Setup FreeRADIUS, sshd, rsyslog and PAM"
+      working-directory: pam_radius
+      run: |
+        echo "#######################################################"
+        echo "# Kill services"
+        pkill -9 rsyslogd || :
+        pkill -9 freeradius || :
+        pkill -9 sshd || :
 
         echo "#######################################################"
-        echo "## Stop the services syslog-ng/sshd/freeradius"
-        ( sudo rm -f /var/log/secure && \
-          sudo touch /var/log/secure && \
-          sudo chmod 600 /var/log/secure
-        )
-        sudo killall -q -9 syslog-ng radiusd sshd || :
-        # https://stackoverflow.com/questions/47973554/how-to-let-syslog-workable-in-docker
-        sudo sed -i 's/system()/# system()/g' /etc/syslog-ng/syslog-ng.conf
-        sudo /usr/sbin/syslog-ng --no-caps
-
-        echo "#######################################################"
-        echo "## Setup the services"
+        echo "# Run setup scripts"
         export CI_TEST_USER="$CI_TEST_USER" CI_TEST_PASS="$CI_TEST_PASS"
-        for i in setup-pam_radius.sh setup-freeradius.sh setup-sshd.sh; do
-            script="${PWD}/scripts/ci/$i"
+        for FILE in setup-rsyslog.sh setup-pam_radius.sh setup-freeradius.sh setup-sshd.sh; do
+            SCRIPT="${PWD}/scripts/ci/$FILE"
 
-            echo "Calling $script"
-            sudo -E $script
+            echo "Calling $FILE"
+            $SCRIPT
         done
 
         echo "#######################################################"
-        echo "## Start the services sshd"
-        echo | sudo ssh-keygen -A
-        sudo /usr/sbin/sshd
-        sudo rm -f /run/nologin # Needed to enable the log in!
+        echo "# Start services"
+        /usr/sbin/rsyslogd
+        /usr/sbin/sshd
+        rm -f /run/nologin
 
-        echo "## Start the services radiusd"
-        ( sudo make -C /etc/raddb/certs/ destroycerts all && \
-          sudo sed 's/dh_file =/#dh_file =/g' -i /etc/raddb/mods-available/eap && \
-          sudo chmod 0644 /etc/raddb/certs/server.pem
+        ( make -C /etc/raddb/certs/ destroycerts all && \
+          sed 's/dh_file =/#dh_file =/g' -i /etc/raddb/mods-available/eap && \
+          chmod 0644 /etc/raddb/certs/server.pem
         )
-        sudo /usr/sbin/radiusd
+        /usr/sbin/radiusd
 
         echo "#######################################################"
-        echo "## Show processes"
-        ps aux | grep -E "([r]adius|[s]sh|[s]yslog)"
-      working-directory: pam_radius
+        echo "# Show processes"
+        ps -ef
 
-    - name: "Content of /etc/ssh/sshd_config"
+    - name: "Show config files"
       run: |
-        sudo cat /etc/ssh/sshd_config
+        for FILE in \
+            /etc/ssh/sshd_config \
+            /etc/pam.d/sshd \
+            /etc/pam_radius_auth.conf
+        do
+          echo "#####################################################"
+          echo "# $FILE"
+          echo
+          cat "$FILE"
+          echo
+        done
 
-    - name: "Content of /etc/pam.d/sshd"
+    - name: "Positive authentication tests"
       run: |
-        sudo cat /etc/pam.d/sshd
+        : > /var/log/auth.log
 
-    - name: "Content of /etc/pam_radius_auth.conf"
-      run: |
-        sudo cat /etc/pam_radius_auth.conf
+        radtest -x "$CI_TEST_USER" "$CI_TEST_PASS" localhost 0 testing123
 
-    - name: "Validate freeradius instance using radtest"
-      run: |
-        radtest -x $CI_TEST_USER $CI_TEST_PASS localhost 0 testing123
+        sshpass -p "${CI_TEST_PASS}" -v \
+            /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost \
+            "echo 'User logged in successfully' > /tmp/OK"
+        cat /tmp/OK
 
-    - name: "Run ssh authorization over pam_radius"
+        grep -q "pam_radius_auth: authentication succeeded" /var/log/auth.log
+        ! grep -q "pam_radius_auth: authentication failed" /var/log/auth.log
+
+    - name: "Show positive auth logs"
       run: |
-        if ! sshpass -p "${CI_TEST_PASS}" -v \
-          /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost id; then
-            echo "ERROR: Something goes wrong with the SSH + PAM_RADIUS authentication!"
-            echo "############## Show the logs in /var/log/secure"
-            sudo tail -35 /var/log/secure
-            exit 1
+        cat -n /var/log/auth.log
+
+    - name: "Negative authentication tests"
+      run: |
+        : > /var/log/auth.log
+
+        if radtest -x "$CI_TEST_USER" "not$CI_TEST_PASS" localhost 0 testing123; then
+          echo "Something bad happened - this radtest authentication should have failed"
+          exit 1
         fi
 
-    - name: "Looking for 'pam_radius_auth: authentication succeeded' in /var/log/secure"
-      run: |
-        echo "#######################################################"
-        echo "## Show the logs in /var/log/secure"
-        sudo cat -n /var/log/secure
+        if sshpass -p "not$CI_TEST_PASS" -v \
+            /usr/bin/ssh -T -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -p 22 ${CI_TEST_USER}@localhost \
+            "echo NOTOK > /tmp/NOTOK"; then
+          echo "Something bad happened - this ssh authentication should have failed"
+          exit 1
+        fi
 
-        # if ! grep -q "pam_radius_auth: authentication succeeded" /var/log/secure; then
-        #   echo "ERROR: Something goes wrong with the SSH + PAM_RADIUS authentication!"
-        #   exit 1
-        # fi
+        grep -q "pam_radius_auth: authentication failed" /var/log/auth.log
+        ! grep -q "pam_radius_auth: authentication succeeded" /var/log/auth.log
+
+    - name: "Show negative auth logs"
+      if: ${{ success() || failure() }}
+      run: |
+        cat -n /var/log/auth.log
 
     #
     #  If the CI has failed and the branch is ci-debug then we start a tmate

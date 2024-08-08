@@ -129,12 +129,12 @@ debian/changelog: debian/changelog.in
 
 .PHONY: deb
 deb: debian/changelog
-	@if ! which fakeroot; then \
-		if ! which apt-get; then \
+	@if ! command -v fakeroot; then \
+		if ! command -v apt-get; then \
 		  echo "'make deb' only works on debian systems" ; \
 		  exit 1; \
 		fi ; \
-		echo "Please run 'apt-get install build-essentials' "; \
+		echo "Please run 'apt-get install build-essential fakeroot' "; \
 		exit 1; \
 	fi
 	fakeroot debian/rules debian/control
