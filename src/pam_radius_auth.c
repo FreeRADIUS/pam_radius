@@ -163,6 +163,19 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			ctrl |= PAM_DEBUG_ARG;
 			conf->debug = TRUE;
 
+		} else if (!strncmp(arg, "hostname=", 9)) {
+			if (!strncmp(conf->hostname, arg+9, MAXHOSTNAME)) {
+				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
+			} else {
+				/* truncate excessive hostnames to (MAXHOSTNAME -1) length */
+				if (strlen(arg+9) >= (MAXHOSTNAME - 1)) {
+					*((arg + 9) + (MAXHOSTNAME - 1)) = '\0';
+				}
+				/* set the new hostname */
+				memset(conf->hostname, 0, sizeof(conf->hostname));
+				snprintf(conf->hostname, MAXHOSTNAME, "%s", (arg+9));
+			}
+
 		} else if (!strncmp(arg, "prompt=", 7)) {
 			if (!strncmp(conf->prompt, (arg+7), MAXPROMPT)) {
 				_pam_log(LOG_WARNING, "ignoring duplicate '%s'", arg);
@@ -957,10 +970,14 @@ error:
  */
 static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char *password, radius_conf_t *conf)
 {
-	char hostname[256];
+	char hostname[MAXHOSTNAME];
 
 	hostname[0] = '\0';
-	gethostname(hostname, sizeof(hostname) - 1);
+	if (conf->hostname[0] != '\0') {
+		strcpy(hostname, conf->hostname);
+	} else {
+		gethostname(hostname, sizeof(hostname) - 1);
+	}
 
 	/*
 	 *	For Access-Request, create a random authentication

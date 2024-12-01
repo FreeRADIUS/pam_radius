@@ -58,6 +58,7 @@
 #define MAXPROMPT 33               /* max prompt length, including '\0' */
 #define DEFAULT_PROMPT "Password"  /* default prompt, without the ': '  */
 
+#define MAXHOSTNAME (HOST_NAME_MAX+1)
 
 /*************************************************************************
  * Platform specific defines
@@ -190,6 +191,7 @@ typedef struct radius_conf_t {
 	int privilege_level;
 	int require_message_authenticator;
 	uint8_t *message_authenticator;
+	char hostname[MAXHOSTNAME];
 } radius_conf_t;
 
 #endif /* PAM_RADIUS_H */
