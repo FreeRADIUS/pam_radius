@@ -190,6 +190,7 @@ typedef struct radius_conf_t {
 	int privilege_level;
 	int require_message_authenticator;
 	uint8_t *message_authenticator;
+	char hostname[MAXHOSTNAMELEN + 1];
 } radius_conf_t;
 
 #endif /* PAM_RADIUS_H */
