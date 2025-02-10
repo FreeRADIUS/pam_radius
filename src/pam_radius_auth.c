@@ -1668,6 +1668,18 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			}
 		}
 
+		attribute_t *a_class=NULL;
+		if((a_class=find_attribute(response,PW_CLASS))) {
+			char *buf=NULL;
+			if((buf=malloc(a_class->length-1))) {
+				memcpy(buf,a_class->data,a_class->length-2);
+				buf[a_class->length-2]='\0';
+				_pam_log(LOG_DEBUG, "Found Class attribute '%s'",buf);
+				if(pam_set_data(pamh,"rad_auth_class",(void*)buf,_int_free)!=PAM_SUCCESS) _pam_log(LOG_ERR,"Could not save RADIUS Class: pam_set_data failed");
+			}
+			else _pam_log(LOG_ERR,"Could not save RADIUS Class: out of memory");
+		}
+
 	} else {
 		retval = PAM_AUTH_ERR;	/* authentication failure */
 	}
@@ -1767,6 +1779,12 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	add_attribute(request, PW_ACCT_SESSION_ID, (uint8_t *) recv_buffer, strlen(recv_buffer));
 
 	add_int_attribute(request, PW_ACCT_AUTHENTIC, PW_AUTH_RADIUS);
+
+	const char *class=NULL;
+	if(pam_get_data(pamh,"rad_auth_class",(const void**)&class)==PAM_SUCCESS) {
+		_pam_log(LOG_DEBUG,"Adding Class attribute '%s'",class);
+		add_attribute(request,PW_CLASS,(const unsigned char*)class,strlen(class));
+	}
 
 	if (status == PW_STATUS_START) {
 		time_t *session_time = malloc(sizeof(time_t));
