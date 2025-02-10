@@ -1606,6 +1606,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 	/* Whew! Done the password checks, look for an authentication acknowledge */
 	if (response->code == PW_ACCESS_ACCEPT) {
+		attribute_t *attr_fip, *attr_class;
+
 		retval = PAM_SUCCESS;
 
 		/* Read Management-Privilege-Level attribute from the response */
@@ -1651,7 +1653,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			}
 		}
 
-		attribute_t *attr_fip;
 		if ((attr_fip = find_attribute(response, PW_FRAMED_ADDRESS))) {
 			char frameip[100];
 			struct in_addr ip_addr;
@@ -1665,6 +1666,21 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			}
 			else {
 				_pam_log(LOG_DEBUG, "Set PAM environment variable : %s", frameip);
+			}
+		}
+
+		if ((attr_class = find_attribute(response, PW_CLASS))) {
+			char *buf;
+
+			if ((buf = malloc(attr_class->length - 1))) {
+				buf[0] = attr_class->length - 2;
+				memcpy(buf + 1, attr_class->data, attr_class->length - 1);
+
+				if (pam_set_data(pamh, "pam_radius_auth_class", (void*)buf, _int_free) != PAM_SUCCESS) {
+					_pam_log(LOG_ERR, "Could not save RADIUS Class: pam_set_data failed");
+				}
+			} else {
+				_pam_log(LOG_ERR,"Could not save RADIUS Class: out of memory");
 			}
 		}
 
@@ -1717,6 +1733,7 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 {
 	CONST char *user;
 	CONST char *rhost;
+	const unsigned char *class = NULL;
 	int retval = PAM_AUTH_ERR;
 
 	char recv_buffer[4096];
@@ -1767,6 +1784,10 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	add_attribute(request, PW_ACCT_SESSION_ID, (uint8_t *) recv_buffer, strlen(recv_buffer));
 
 	add_int_attribute(request, PW_ACCT_AUTHENTIC, PW_AUTH_RADIUS);
+
+	if (pam_get_data(pamh, "pam_radius_auth_class", (const void**)&class) == PAM_SUCCESS) {
+		add_attribute(request, PW_CLASS, class + 1, class[0]);
+	}
 
 	if (status == PW_STATUS_START) {
 		time_t *session_time = malloc(sizeof(time_t));
