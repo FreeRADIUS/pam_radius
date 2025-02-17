@@ -801,9 +801,10 @@ static int initialize(radius_conf_t *conf, int accounting)
 	radius_server_t *server, **last;
 	int timeout;
 	int line = 0;
-	char src_ip[MAX_IP_LEN];
+	char src_ip[MAX_IP_LEN+1];
 	int valid_src_ip;
-	char vrf[IFNAMSIZ];
+	char vrf[IFNAMSIZ+1];
+	char *tok, *eptr, *pptr;
 
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
@@ -861,10 +862,94 @@ static int initialize(radius_conf_t *conf, int accounting)
 		/*
 		 *	Scan the line for data.
 		 */
-		if (sscanf(p, "%s %s %d %s %s", hostname, secret, &timeout, src_ip, vrf) < 2) {
-			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
+		//#define _PARSE_STRICT_
+		/* Read hostname */
+		pptr=NULL;
+		if(!(tok=strtok_r(p," \t\r\n", &pptr))) {
+			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname",
 				 conf->conf_file, line);
 			continue;			/* invalid line */
+		}
+		strcpy(hostname, tok);
+		p=tok+strlen(tok)+1;	/* reset just ahead the hostname */
+
+		/* Read secret */
+		while ((*p == ' ') || (*p == '\t') || (*p == '\r') || (*p == '\n')) p++;
+		if(*p == '\'') {
+			/* secret is a quoted string*/
+			p++;
+			tok = secret;
+			while(*p && (*p != '\'' && *p != '\r' && *p != '\n')) {
+				/* allow single quote in secret if escaped by "\" */
+				if(*p == '\\' && p[1] == '\'') p++;
+				*tok++ = *p++;
+			}
+			if(*p != '\'') {
+				/* closing quote not found */
+				_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read secret, quote not closed",
+					 conf->conf_file, line);
+				continue;			/* invalid line */
+			}
+			*tok = '\0';
+			p++;			/* restart parsing context at next strtok */
+			pptr=NULL;
+		} else {
+			/* allow secret stating with single quote if escaped by "\" */
+			if(*p == '\\' && (p[1] == '\'' || p[1] == '\\')) p++;
+			pptr=NULL;
+			if(!(tok=strtok_r(p," \t\r\n", &pptr))) {
+				_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read secret",
+					conf->conf_file, line);
+				continue;			/* invalid line */
+			}
+			strcpy(secret, tok);
+			p=NULL;			/* continue strtok as usual */
+		}
+
+		/* Read timout */
+		if((tok=strtok_r(p," \t\r\n", &pptr))) {
+			timeout = strtol(tok, &eptr, 10);
+		#ifdef _PARSE_STRICT_
+			if(eptr != tok && *eptr=='\0') {
+		#else
+			if(eptr != tok) {
+		#endif
+				/* Read src_ip */
+				if((tok=strtok_r(NULL," \t\r\n", &pptr))) {
+					strncpy(src_ip, tok, sizeof(src_ip)-1);
+					if(src_ip[sizeof(src_ip)-2] != '\0') {
+						_pam_log(LOG_ERR, "ERROR reading %s, line %d: source_ip '%s' to long (max %zu chars)",
+							conf->conf_file, line, tok, sizeof(src_ip)-1);
+						continue;			/* invalid line */
+					}
+
+					/* Read vrf */
+					if((tok=strtok_r(NULL," \t\r\n", &pptr))) {
+						strncpy(vrf, tok, sizeof(vrf)-1);
+						if(vrf[sizeof(vrf)-2] != '\0') {
+							_pam_log(LOG_ERR, "ERROR reading %s, line %d: vrf '%s' to long (max %zu chars)",
+								conf->conf_file, line, tok, sizeof(vrf)-1);
+							continue;			/* invalid line */
+						}
+
+					#ifdef _PARSE_STRICT_
+						if((tok=strtok_r(NULL," \t\r\n", &pptr))) {
+							_pam_log(LOG_ERR, "ERROR reading %s, line %d: Unexpected content at '%s'",
+								conf->conf_file, line, tok);
+							continue;			/* invalid line */
+						}
+					#endif
+
+					}
+				}
+			}
+		#ifdef _PARSE_STRICT_
+			else {
+				_pam_log(LOG_ERR, "ERROR reading %s, line %d: Invalid timeout '%s'",
+					 conf->conf_file, line, tok);
+				continue;			/* invalid line */
+			}
+		#endif
 		}
 
 		/*
