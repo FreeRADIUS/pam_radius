@@ -169,6 +169,7 @@ typedef struct radius_server_t {
 	int accounting;
 	int sockfd;
 	int sockfd6;
+	int tcp;
 	char vrf[IFNAMSIZ];
 } radius_server_t;
 
