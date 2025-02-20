@@ -117,5 +117,8 @@ privilege_level - If set, the value of the Management-Privilege-Level RADIUS
                   attribute from the Access-Accept response will be put in to
                   the "Privilege" environment variable.
 
+use_tcp         - Use TCP instead of the default UDP to communicate with
+                  the servers.
+
 ---------------------------------------------------------------------------
 

@@ -164,12 +164,12 @@ typedef struct radius_server_t {
 	struct sockaddr_storage ip_storage;
 	struct sockaddr *ip;
 	char *hostname;
+	char *src_ip;
 	char *secret;
-	int timeout;
+	int read_timeout;
+	int connect_timeout;
 	int accounting;
-	int sockfd;
-	int sockfd6;
-	char vrf[IFNAMSIZ];
+	char *vrf;
 } radius_server_t;
 
 typedef struct radius_conf_t {
@@ -177,12 +177,11 @@ typedef struct radius_conf_t {
 	int retries;
 	int use_ipv4;
 	int use_ipv6;
+	int use_tcp;
 	int localifdown;
 	CONST char *client_id;
 	int force_prompt;
 	int max_challenge;
-	int sockfd;
-	int sockfd6;
 	int debug;
 	CONST char *conf_file;
 	char prompt[MAXPROMPT];

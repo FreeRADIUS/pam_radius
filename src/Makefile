@@ -1,9 +1,12 @@
-all: pam_radius_auth.o md5.o
+all: pam_radius_auth.o md5.o strlcat.o
 
 pam_radius_auth.o: pam_radius_auth.c pam_radius_auth.h config.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 md5.o: md5.c md5.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+strlcat.o: strlcat.c config.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 .PHONY: clean
