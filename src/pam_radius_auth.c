@@ -955,11 +955,11 @@ error:
 	fclose(fp);
 
 	if (conf->sockfd != -1)	close(conf->sockfd);
-	
+
 	if (conf->sockfd6 != -1) close(conf->sockfd6);
-	
+
 	cleanup(conf->server);
-	
+
 	return PAM_AUTHINFO_UNAVAIL;
 }
 
@@ -1218,6 +1218,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #else
 			} else if (FD_ISSET(sockfd, &set)) {
 #endif
+				/*
+				 * Prevent total_length used for re-sending requests from being overwritten
+				 * with the length of the received RADIUS response.
+				 */
+
+				int total_length;
 				/* try to receive some data */
 				salen = sizeof(sockaddr_storage);
 
@@ -1533,7 +1539,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	while (response->code == PW_ACCESS_CHALLENGE) {
 		attribute_t *a_state, *a_reply, *a_prompt;
 		char challenge[BUFFER_SIZE];
-    	int prompt;       
+    	int prompt;
 
 		/* Now we do a bit more work: challenge the user, and get a response */
 		if (((a_state = find_attribute(response, PW_STATE)) == NULL) ||
@@ -1698,7 +1704,7 @@ do_next:
 
 	close(config.sockfd);
 	if (config.sockfd6 >= 0) close(config.sockfd6);
-	
+
 	cleanup(config.server);
 	_pam_forget(password);
 	_pam_forget(resp2challenge);
