@@ -114,6 +114,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	conf->use_ipv4 = 1;
 	conf->use_ipv6 = 1;
+	conf->use_tcp = 0;
 
 	/*
 	 *	If either is not there, then we can't parse anything.
@@ -148,6 +149,9 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 		} else if (!strcmp(arg, "localifdown")) {
 			conf->localifdown = 1;
+
+		} else if (!strcmp(arg, "use_tcp")) {
+			conf->use_tcp = 1;
 
 		} else if (!strncmp(arg, "client_id=", 10)) {
 			if (conf->client_id) {
@@ -230,7 +234,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' ruser=%s prompt='%s' force_prompt=%s "\
 							"prompt_attribute=%s max_challenge=%d privilege_level=%s "\
-							"require_message_authenticator=%s",
+							"require_message_authenticator=%s use_tcp=%s",
 				conf->conf_file,
 				print_bool(ctrl & PAM_USE_FIRST_PASS),
 				print_bool(ctrl & PAM_TRY_FIRST_PASS),
@@ -244,7 +248,8 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				print_bool(conf->prompt_attribute),
 				conf->max_challenge,
 				print_bool(conf->privilege_level),
-				print_bool(conf->require_message_authenticator)
+				print_bool(conf->require_message_authenticator),
+				print_bool(conf->use_tcp)
 		);
 	}
 
@@ -679,26 +684,26 @@ static void cleanup(radius_server_t *server)
 		_pam_drop(server->hostname);
 		_pam_forget(server->secret);
 
-		if (server->sockfd != -1) close(server->sockfd);
-
-		if (server->sockfd6 != -1) close(server->sockfd6);
-
 		_pam_drop(server);
 		server = next;
 	}
 }
 
+
 static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
 {
+	char error_string[BUFFER_SIZE];
+
+	int sock_type = conf->use_tcp ? SOCK_STREAM : SOCK_DGRAM;
+
 	if (!conf->use_ipv4) {
 		*sockfd = -1;
 		goto use_ipv6;
 	}
 
 	/* open a socket.	Dies if it fails */
-	*sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	*sockfd = socket(AF_INET, sock_type, 0);
 	if (*sockfd < 0) {
-		char error_string[BUFFER_SIZE];
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Failed to open RADIUS socket: %s\n", error_string);
 		return -1;
@@ -726,7 +731,6 @@ static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockf
 
 	/* set up the local end of the socket communications */
 	if (bind(*sockfd, (struct sockaddr *)salocal4, sizeof (struct sockaddr_in)) < 0) {
-		char error_string[BUFFER_SIZE];
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
 		return -1;
@@ -739,9 +743,8 @@ static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockf
 
 use_ipv6:
 	/* open a IPv6 socket. */
-	*sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
+	*sockfd6 = socket(AF_INET6, sock_type, 0);
 	if (*sockfd6 < 0) {
-		char error_string[BUFFER_SIZE];
 
 		/*
 		 *	IPv6 can be disabled on localhost.
@@ -774,7 +777,6 @@ use_ipv6:
 
 	/* set up the local end of the socket communications */
 	if (bind(*sockfd6, (struct sockaddr *)salocal6, sizeof (struct sockaddr_in6)) < 0) {
-		char error_string[BUFFER_SIZE];
 		get_error_string(errno, error_string, sizeof(error_string));
 		_pam_log(LOG_ERR, "Failed binding to IPv6 port: %s", error_string);
 		return -1;
@@ -783,15 +785,182 @@ use_ipv6:
 	return 0;
 }
 
+
+static int wait_for_socket(int sockfd, int timeout, short event)
+{
+	#ifdef HAVE_POLL_H
+	struct pollfd pollfds[1];
+#else
+	fd_set set;
+#endif
+	struct timeval tv;
+	time_t now, end;
+	int rcode;
+	char error_string[BUFFER_SIZE];
+
+	time(&now);
+
+	tv.tv_sec = timeout;    /* wait for the specified time */
+	tv.tv_usec = 0;
+	end = now + tv.tv_sec;
+
+#ifdef HAVE_POLL_H
+	pollfds[0].fd = sockfd;   /* wait only for the RADIUS UDP socket */
+	pollfds[0].events = event;     /* wait for data to read */
+#else
+	FD_ZERO(&set);                  /* clear out the set */
+	FD_SET(sockfd, &set);     /* wait only for the RADIUS UDP socket */
+#endif
+
+	while(TRUE) {
+#ifdef HAVE_POLL_H
+		rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000);
+#else
+		rcode = select(sockfd + 1, &set, NULL, NULL, &tv);
+#endif
+
+		/* timed out */
+		if (rcode == 0) {
+			return 0;
+		}
+
+		if (rcode < 0) {
+			/* poll returned an error */
+			if (errno == EINTR) {	/* we were interrupted */
+				time(&now);
+
+				if (now > end) {	/* timeout */
+					return 0;
+				}
+
+				tv.tv_sec = end - now;
+				if (tv.tv_sec == 0) {   /* keep waiting */
+					tv.tv_sec = 1;
+				}
+			} else {			/* not an interrupt, it was a real error */
+				get_error_string(errno, error_string, sizeof(error_string));
+				_pam_log(LOG_ERR, "Error waiting for response from RADIUS server: %s", error_string);
+				return -1;
+			}
+
+					/* the call returned OK */
+	#ifdef HAVE_POLL_H
+		} else if (pollfds[0].revents & event) {
+	#else
+		} else if (FD_ISSET(sockfd, &set)) {
+	#endif
+
+			break;
+		}
+	}
+
+	return 1;
+}
+
+static int socket_for_server(radius_conf_t const *conf, radius_server_t *server) {
+	struct sockaddr_storage salocal;
+	struct sockaddr_storage salocal4;
+	struct sockaddr_storage salocal6;
+	int valid_src_ip;
+	int sockfd = -1;
+	int sockfd6 = -1;
+	int retval;
+	int salen;
+	char error_string[BUFFER_SIZE];
+
+	memset(&salocal4, 0, sizeof(salocal4));
+	memset(&salocal6, 0, sizeof(salocal6));
+	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
+	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
+
+	if (server->src_ip) {
+		valid_src_ip = -1;
+
+		memset(&salocal, 0, sizeof(salocal));
+		valid_src_ip = get_ipaddr(server->src_ip, (struct sockaddr *)&salocal, NULL);
+		if (valid_src_ip == 0) {
+			switch (salocal.ss_family) {
+			case AF_INET:
+				memcpy(&salocal4, &salocal, sizeof(salocal));
+				break;
+
+			case AF_INET6:
+				memcpy(&salocal6, &salocal, sizeof(salocal));
+				break;
+			}
+		}
+	}
+
+	if (initialize_sockets(conf, &sockfd, &sockfd6, &salocal4, &salocal6, server->vrf) != 0) {
+		_pam_log(LOG_ERR, "failed for server %s", server->hostname);
+		return -1;
+	}
+
+	/* only look up IP information as necessary */
+	retval = host2server(conf->debug, server);
+
+	if (retval != 0) {
+		_pam_log(LOG_ERR,
+				"Failed looking up IP address for RADIUS server %s (error=%s)",
+				server->hostname, gai_strerror(retval));
+		return -1;
+	}
+
+	// close the socket we're not going to use
+	if (server->ip->sa_family == AF_INET) {
+		close(sockfd6);
+		salen = sizeof(struct sockaddr_in);
+	} else {
+		close(sockfd);
+		sockfd = sockfd6;
+		salen = sizeof(struct sockaddr_in6);
+	}
+
+	if (conf->use_tcp) {
+
+		// Must use non-blocking mode so we can time-out the connect/send
+		if (fcntl(sockfd, F_SETFL, O_NONBLOCK) < 0) {
+			get_error_string(errno, error_string, sizeof(error_string));
+			_pam_log(LOG_ERR, "Error setting socket non-blocking for RADIUS server %s: %s",
+				 server->hostname, error_string);
+				 close(sockfd);
+				 return -1;
+		}
+
+		_pam_log(LOG_DEBUG, "connecting to %s using TCP, timeout %d", server->hostname, server->connect_timeout);
+
+		if (connect(sockfd, server->ip, salen) < 0 ) {
+			if( errno != EINPROGRESS) {
+				get_error_string(errno, error_string, sizeof(error_string));
+				_pam_log(LOG_ERR, "Error connecting to RADIUS server %s: %s",
+					server->hostname, error_string);
+				close(sockfd);
+				return -1;
+			}
+		}
+
+		retval = wait_for_socket(sockfd, server->connect_timeout, POLLOUT);
+		if (retval == 0) {
+			_pam_log(LOG_ERR, "Timeout connecting to RADIUS server %s", server->hostname);
+			close(sockfd);
+			return -1;
+		}
+		if (retval < 0) {
+			return -1;
+		}
+		_pam_log(LOG_DEBUG, "Connected to %s", server->hostname);
+	}
+
+	return sockfd;
+}
+
+
 /*
  * allocate and open a local port for communication with the RADIUS
  * server
  */
 static int initialize(radius_conf_t *conf, int accounting)
 {
-	struct sockaddr_storage salocal;
-	struct sockaddr_storage salocal4;
-	struct sockaddr_storage salocal6;
 	char hostname[BUFFER_SIZE];
 	char secret[BUFFER_SIZE];
 
@@ -799,18 +968,14 @@ static int initialize(radius_conf_t *conf, int accounting)
 	char *p;
 	FILE *fp;
 	radius_server_t *server, **last;
-	int timeout;
+	char timeout[BUFFER_SIZE];
+	int read_timeout;
+	int connect_timeout;
 	int line = 0;
 	char src_ip[MAX_IP_LEN];
-	int valid_src_ip;
 	char vrf[IFNAMSIZ];
+	char *comma;
 
-	memset(&salocal4, 0, sizeof(salocal4));
-	memset(&salocal6, 0, sizeof(salocal6));
-	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
-	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
-	conf->sockfd = -1;
-	conf->sockfd6 = -1;
 
 	/* the first time around, read the configuration file */
 	fp = fopen (conf->conf_file, "r");
@@ -854,14 +1019,16 @@ static int initialize(radius_conf_t *conf, int accounting)
 		/*
 		 *	Initialize the optional variables.
 		 */
-		timeout = 3;
+		read_timeout = 3;
+		connect_timeout = 2;
 		src_ip[0] = 0;
 		vrf[0] = 0;
+		timeout[0] = 0;
 
 		/*
 		 *	Scan the line for data.
 		 */
-		if (sscanf(p, "%s %s %d %s %s", hostname, secret, &timeout, src_ip, vrf) < 2) {
+		if (sscanf(p, "%s %s %s %s %s", hostname, secret, timeout, src_ip, vrf) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
 				 conf->conf_file, line);
 			continue;			/* invalid line */
@@ -879,54 +1046,37 @@ static int initialize(radius_conf_t *conf, int accounting)
 		server->hostname = strdup(hostname);
 		server->secret = strdup(secret);
 		server->accounting = accounting;
+		server->src_ip = src_ip[0] ? strdup(src_ip) : NULL;
+		server->vrf = vrf[0] ? strdup(vrf) : NULL;
+
+		comma = strstr(timeout, ",");
+		if (comma != NULL) {
+			*comma = '\0';
+			comma++;
+
+			if (*comma)
+				connect_timeout = atoi(comma);
+		}
+
+		read_timeout = atoi(timeout);
 
 		/*
 		 *	Clamp the timeouts to reasonable values.
 		 */
-		if (timeout < 3) {
-			server->timeout = 3;
-		} else if (timeout > 60) {
-			server->timeout = 60;
+		if (read_timeout < 3) {
+			server->read_timeout = 3;
+		} else if (read_timeout > 60) {
+			server->read_timeout = 60;
 		} else {
-			server->timeout = timeout;
+			server->read_timeout = read_timeout;
 		}
 
-		server->sockfd = -1;
-		server->sockfd6 = -1;
-
-		/*
-		 *	No source IP for this socket, it uses the
-		 *	global one.
-		 */
-		if (!src_ip[0]) continue;
-
-		memset(&salocal4, 0, sizeof(salocal4));
-		memset(&salocal6, 0, sizeof(salocal6));
-		((struct sockaddr *)&salocal4)->sa_family = AF_INET;
-		((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
-
-		valid_src_ip = -1;
-		vrf[IFNAMSIZ - 1] = 0;
-
-		memset(&salocal, 0, sizeof(salocal));
-		valid_src_ip = get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);
-		if (valid_src_ip == 0) {
-			switch (salocal.ss_family) {
-			case AF_INET:
-				memcpy(&salocal4, &salocal, sizeof(salocal));
-				break;
-
-			case AF_INET6:
-				memcpy(&salocal6, &salocal, sizeof(salocal));
-				break;
-			}
-		}
-
-		if (valid_src_ip == 0 || vrf[0]) {
-			if (initialize_sockets(conf, &server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
-
-				goto error;
-			}
+		if (connect_timeout < 1) {
+			server->connect_timeout = 1;
+		} else if (connect_timeout > 60) {
+			server->connect_timeout = 60;
+		} else {
+			server->connect_timeout = connect_timeout;
 		}
 	}
 
@@ -936,17 +1086,6 @@ static int initialize(radius_conf_t *conf, int accounting)
 		goto error;
 	}
 
-	/*
-	 *	Open the global sockets.
-	 */
-	memset(&salocal4, 0, sizeof(salocal4));
-	memset(&salocal6, 0, sizeof(salocal6));
-	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
-	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
-
-	if (initialize_sockets(conf, &conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
-		goto error;
-	}
 
 	fclose(fp);
 	return PAM_SUCCESS;
@@ -954,12 +1093,8 @@ static int initialize(radius_conf_t *conf, int accounting)
 error:
 	fclose(fp);
 
-	if (conf->sockfd != -1)	close(conf->sockfd);
-	
-	if (conf->sockfd6 != -1) close(conf->sockfd6);
-	
 	cleanup(conf->server);
-	
+
 	return PAM_AUTHINFO_UNAVAIL;
 }
 
@@ -1064,20 +1199,13 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		       char *password, int tries)
 {
 	int total_length;
-#ifdef HAVE_POLL_H
-	struct pollfd pollfds[1];
-#else
-	fd_set set;
-#endif
-	struct timeval tv;
 
-	time_t now, end;
 	int rcode;
 	radius_server_t *server = conf->server;
 	int ok;
 	int server_tries;
 	int retval;
-	int sockfd;
+	int sockfd = 0;
 	socklen_t salen;
 	struct sockaddr_storage sockaddr_storage;
 	/* ************************************************************ */
@@ -1098,16 +1226,6 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		/* clear the response */
 		memset(response, 0, sizeof(AUTH_HDR));
 
-		/* only look up IP information as necessary */
-		retval = host2server(conf->debug, server);
-		if (retval != 0) {
-			_pam_log(LOG_ERR,
-				 "Failed looking up IP address for RADIUS server %s (error=%s)",
-				 server->hostname, gai_strerror(retval));
-			ok = FALSE;
-			goto next;		/* skip to the next server */
-		}
-
 		if (request->code == PW_ACCESS_REQUEST) {
 			memset(conf->message_authenticator, 0, AUTH_VECTOR_LEN);
 			hmac_md5(conf->message_authenticator, (uint8_t *) request, ntohs(request->length),
@@ -1118,19 +1236,13 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			get_accounting_vector(request, server);
 		}
 
-		if (server->ip->sa_family == AF_INET) {
-			sockfd = server->sockfd != -1 ? server->sockfd : conf->sockfd;
-		} else {
-			sockfd = server->sockfd6 != -1 ? server->sockfd6 : conf->sockfd6;
-		}
-
-		/*
-		 *	Is there a valid socket for this server + address family?  If not, skip it.
-		 */
+		sockfd = socket_for_server(conf, server);
 		if (sockfd < 0) {
 			ok = FALSE;
 			goto next;
 		}
+
+		_pam_log(LOG_DEBUG, "sending request to %s", server->hostname);
 
 		total_length = ntohs(request->length);
 		server_tries = tries;
@@ -1142,7 +1254,14 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		}
 
 		/* send the packet */
-		if (sendto(sockfd, (char *) request, total_length, 0, server->ip, salen) < 0) {
+		struct sockaddr *send_ip = server->ip;
+		int send_salen = salen;
+		if ( conf->use_tcp ) {
+			send_ip = NULL;
+			send_salen = 0;
+		}
+
+		if ( sendto(sockfd, (char *) request, total_length, 0, send_ip, send_salen) < 0) {
 			char error_string[BUFFER_SIZE];
 			get_error_string(errno, error_string, sizeof(error_string));
 			_pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
@@ -1151,142 +1270,95 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			goto next;		/* skip to the next server */
 		}
 
-		/* ************************************************************ */
-		/* Wait for the response, and verify it. */
-		time(&now);
-
-		tv.tv_sec = server->timeout;    /* wait for the specified time */
-		tv.tv_usec = 0;
-		end = now + tv.tv_sec;
-
-#ifdef HAVE_POLL_H
-		pollfds[0].fd = sockfd;   /* wait only for the RADIUS UDP socket */
-		pollfds[0].events = POLLIN;     /* wait for data to read */
-#else
-		FD_ZERO(&set);                  /* clear out the set */
-		FD_SET(sockfd, &set);     /* wait only for the RADIUS UDP socket */
-#endif
-
-		/* loop, waiting for the network to return data */
 		ok = TRUE;
-		while (ok) {
-#ifdef HAVE_POLL_H
-			rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000);
-#else
-			rcode = select(sockfd + 1, &set, NULL, NULL, &tv);
-#endif
+		while(ok) {
+			_pam_log(LOG_DEBUG, "waiting for response from %s, timeout %d", server->hostname, server->read_timeout);
 
-			/* timed out */
-			if (rcode == 0) {
+			/* ************************************************************ */
+			/* Wait for the response, and verify it. */
+
+			rcode = wait_for_socket(sockfd, server->read_timeout, POLLIN);
+			if (rcode == 0) {			/* timed out */
 				_pam_log(LOG_ERR, "RADIUS server %s failed to respond", server->hostname);
 				if (--server_tries) {
 					goto send;
 				}
 				ok = FALSE;
-				break;			/* exit from the loop */
-			}
+				break;
+			} else if (rcode < 0) {		/* error */
+				ok = FALSE;
+				break;
+			} else {
 
-			if (rcode < 0) {
-				/* poll returned an error */
-				if (errno == EINTR) {	/* we were interrupted */
-					time(&now);
-
-					if (now > end) {
-						_pam_log(LOG_ERR, "RADIUS server %s failed to respond",
-							 server->hostname);
-						if (--server_tries) goto send;
-						ok = FALSE;
-						break;		/* exit from the loop */
-					}
-
-					tv.tv_sec = end - now;
-					if (tv.tv_sec == 0) {   /* keep waiting */
-						tv.tv_sec = 1;
-					}
-				} else {			/* not an interrupt, it was a real error */
-					char error_string[BUFFER_SIZE];
-					get_error_string(errno, error_string, sizeof(error_string));
-					_pam_log(LOG_ERR, "Error waiting for response from RADIUS server %s: %s",
-						 server->hostname, error_string);
-					ok = FALSE;
-					break;
-				}
-
-			/* the call returned OK */
-#ifdef HAVE_POLL_H
-			} else if (pollfds[0].revents & POLLIN) {
-#else
-			} else if (FD_ISSET(sockfd, &set)) {
-#endif
 				/* try to receive some data */
 				salen = sizeof(sockaddr_storage);
 
 				if ((total_length = recvfrom(sockfd, (void *) response, BUFFER_SIZE,
-							     0, (struct sockaddr *) &sockaddr_storage, &salen)) < 0) {
+									0, (struct sockaddr *) &sockaddr_storage, &salen)) < 0) {
 					char error_string[BUFFER_SIZE];
 					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
-					 	 server->hostname, error_string);
+							server->hostname, error_string);
 					continue;
 				}
 
 				/*
-				 *	Ignore packets from the wrong source iP
-				 */
-				if (!ipaddr_cmp(&sockaddr_storage, &server->ip_storage)) {
+				*	Ignore packets from the wrong source iP
+				*/
+				if ( ! (conf->use_tcp ||ipaddr_cmp(&sockaddr_storage, &server->ip_storage))) {
 					_pam_log(LOG_ERR, "Received data from unexpected source - ignoring it");
 					continue;
 				}
 
 				if ((ntohs(response->length) != total_length) ||
-				    (ntohs(response->length) > BUFFER_SIZE)) {
+					(ntohs(response->length) > BUFFER_SIZE)) {
 					_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
-						 server->hostname);
+							server->hostname);
 					continue;
 				}
 
 				/*
-				 * Check that the response ID matches the request ID.
-				 */
+					* Check that the response ID matches the request ID.
+					*/
 				if (response->id != request->id) {
 					_pam_log(LOG_WARNING, "Response packet ID %d does not match the "
-						 "request packet ID %d: ignoring it.",
-						 response->id, request->id);
+							"request packet ID %d: ignoring it.",
+							response->id, request->id);
 					continue;
 				}
 
 				if ((request->code == PW_ACCOUNTING_REQUEST) && (response->code != PW_ACCOUNTING_RESPONSE)) {
 					_pam_log(LOG_WARNING, "Invalid response to Accounting-Request: ignoring it.",
-						 response->id, request->id);
+							response->id, request->id);
 					continue;
 				}
 
 				if ((request->code == PW_ACCESS_REQUEST) &&
-				    !((response->code == PW_ACCESS_ACCEPT) || (response->code == PW_ACCESS_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
+					!((response->code == PW_ACCESS_ACCEPT) || (response->code == PW_ACCESS_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
 					_pam_log(LOG_WARNING, "Invalid response to Access-Request: ignoring it.",
-						 response->id, request->id);
+							response->id, request->id);
 					continue;
 				}
 
 				if (!verify_packet(server, response, request, conf)) {
 					_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
-						 "The shared secret is probably incorrect.", server->hostname);
+							"The shared secret is probably incorrect.", server->hostname);
 					continue;
 				}
 
 				/*
-				 * Whew! The poll is done. It hasn't timed out, or errored out.
-				 * It's our descriptor.	We've got some data. It's the right size.
-				 * The packet is valid.
-				 * NOW, we can skip out of the loop, and process the packet
-				 */
+					* Whew! The poll is done. It hasn't timed out, or errored out.
+					* It's our descriptor.	We've got some data. It's the right size.
+					* The packet is valid.
+					* NOW, we can skip out of the loop, and process the packet
+					*/
 				break;
 			}
-			/* otherwise, we've got data on another descriptor, keep checking the network */
 		}
 
 		/* go to the next server if this one didn't respond */
 		next:
+		close(sockfd);
 		if (!ok) {
 			radius_server_t *old;	/* forget about this server */
 
@@ -1533,7 +1605,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	while (response->code == PW_ACCESS_CHALLENGE) {
 		attribute_t *a_state, *a_reply, *a_prompt;
 		char challenge[BUFFER_SIZE];
-    	int prompt;       
+    	int prompt;
 
 		/* Now we do a bit more work: challenge the user, and get a response */
 		if (((a_state = find_attribute(response, PW_STATE)) == NULL) ||
@@ -1695,9 +1767,6 @@ do_next:
 	}
 
 	DPRINT(LOG_DEBUG, "authentication %s", retval == PAM_SUCCESS ? "succeeded":"failed");
-
-	close(config.sockfd);
-	if (config.sockfd6 >= 0) close(config.sockfd6);
 	
 	cleanup(config.server);
 	_pam_forget(password);
@@ -1826,10 +1895,6 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	retval = PAM_SUCCESS;
 
 error:
-
-	close(config.sockfd);
-	if (config.sockfd6 >= 0)
-		close(config.sockfd6);
 	cleanup(config.server);
 
 	return retval;
