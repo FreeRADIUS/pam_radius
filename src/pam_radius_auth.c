@@ -1218,10 +1218,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #else
 			} else if (FD_ISSET(sockfd, &set)) {
 #endif
+				ssize_t response_length;
+
 				/* try to receive some data */
 				salen = sizeof(sockaddr_storage);
 
-				if ((total_length = recvfrom(sockfd, (void *) response, BUFFER_SIZE,
+				if ((response_length = recvfrom(sockfd, (void *) response, BUFFER_SIZE,
 							     0, (struct sockaddr *) &sockaddr_storage, &salen)) < 0) {
 					char error_string[BUFFER_SIZE];
 					get_error_string(errno, error_string, sizeof(error_string));
@@ -1238,7 +1240,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					continue;
 				}
 
-				if ((ntohs(response->length) != total_length) ||
+				if ((ntohs(response->length) != response_length) ||
 				    (ntohs(response->length) > BUFFER_SIZE)) {
 					_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
 						 server->hostname);
