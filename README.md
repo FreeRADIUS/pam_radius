@@ -4,6 +4,30 @@
 [![CI RPM](https://github.com/FreeRADIUS/pam_radius/actions/workflows/ci-rpm.yml/badge.svg)](https://github.com/FreeRADIUS/pam_radius/actions/workflows/ci-rpm.yml)
 [![CI DEB](https://github.com/FreeRADIUS/pam_radius/actions/workflows/ci-deb.yml/badge.svg)](https://github.com/FreeRADIUS/pam_radius/actions/workflows/ci-deb.yml)
 
+This branch features RADIUS over TCP and RADIUS over TLS (RADSEC).
+
+To use RADIUS over TCP just prefix the desired servers with "tcp://".
+
+To use RADIUS over TSL (RADSEC) prefix the desired servers with "tls://",
+and provide required client certificate, and the authenticating CAs, by adding 
+the following parameters to the pam config line (both auth and session):
+
+cert = absolute pathname of the client certificate file (PEM format)
+
+key = absolute pathname of the client private key file
+
+ca = absolute pathname to the know and authentication CAs file
+
+By default servers certificates are verified, you may ignore failures by adding the "verify=no" option.
+
+You may force RADSEC usage on all servers, without the "tls://" prefix, by setting "radsec=yes".
+
+You may disable RADSEC usage, falling back all "tls://" to RADIUS over UDP, by setting "radsec=no".
+
+By default, with "radsec=try" , if SSL  setup works, RADSEC is used for "tls://", otherwise they fallback to RADIUS over UDP.
+
+------------------------------------------------------------------------------
+
 This is the PAM to RADIUS authentication module.  It allows any Linux, OSX or
 Solaris machine to become a RADIUS client for authentication.  You will need to
 supply your own RADIUS server to perform the actual authentication.
