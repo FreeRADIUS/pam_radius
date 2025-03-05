@@ -116,8 +116,10 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	conf->use_ipv4 = 1;
 	conf->use_ipv6 = 1;
+#ifdef HAVE_LIBSSL
 	conf->radsec = 2; // default value try
 	conf->ssl_verify = 1;
+#endif
 
 	/*
 	 *	If either is not there, then we can't parse anything.
@@ -217,22 +219,42 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			conf->require_message_authenticator = TRUE;
 
 		} else if (!strncmp(arg, "radsec=", 7)) {
+		#ifdef HAVE_LIBSSL
 			if (!strcmp(arg + 7, "try")) conf->radsec = 2;	// If SSL fails, fallback to RADIUS UDP on tls:// 
 			if (!strcmp(arg + 7, "yes")) conf->radsec = 1;	// Always use RADSEC, even without tls:// */
 			if (!strcmp(arg + 7, "no")) conf->radsec = 0;	// Never use RADSEC, fallback to RADIUS UDP on tls://
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
 
 		} else if (!strncmp(arg, "verify=", 7)) {
+		#ifdef HAVE_LIBSSL
 			if (!strcmp(arg + 7, "yes")) conf->ssl_verify = 1;
 			if (!strcmp(arg + 7, "no")) conf->ssl_verify = 0;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
 
 		} else if (!strncmp(arg, "cert=", 5)) {
+		#ifdef HAVE_LIBSSL
 			conf->cert=arg + 5;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
 
 		} else if (!strncmp(arg, "key=", 4)) {
+		#ifdef HAVE_LIBSSL
 			conf->key= arg + 4;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
 
 		} else if (!strncmp(arg, "ca=", 3)) {
+		#ifdef HAVE_LIBSSL
 			conf->ca= arg + 3;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
 
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", arg);
@@ -245,6 +267,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		conf->use_ipv4 = 1;
 	}
 
+#ifdef HAVE_LIBSSL
 	if(conf->radsec) {
 		if((conf->cert && !conf->key) || (!conf->cert && conf->key)) {
 			_pam_log(LOG_WARNING, "RADSEC disabled: both cert and key must be defined");
@@ -252,6 +275,7 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 	} else {
 		_pam_log(LOG_WARNING, "RADSEC disabled by configuration: radsec=no");
 	}
+#endif
 
 	if (conf->debug) {
 #define print_bool(cond) (cond) ? "yes" : "no"
@@ -260,8 +284,11 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' ruser=%s prompt='%s' force_prompt=%s "\
 							"prompt_attribute=%s max_challenge=%d privilege_level=%s "\
-							"require_message_authenticator=%s "\
-							"radsec=%s verify=%s cert=%s key=%s ca=%s",
+							"require_message_authenticator=%s "
+#ifdef HAVE_LIBSSL
+							"radsec=%s verify=%s cert=%s key=%s ca=%s"
+#endif
+				,
 				conf->conf_file,
 				print_bool(ctrl & PAM_USE_FIRST_PASS),
 				print_bool(ctrl & PAM_TRY_FIRST_PASS),
@@ -275,12 +302,14 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				print_bool(conf->prompt_attribute),
 				conf->max_challenge,
 				print_bool(conf->privilege_level),
-				print_bool(conf->require_message_authenticator),
-				conf->radsec == 2 ? "try" : ( conf->radsec ? "yes" : "no"),
+				print_bool(conf->require_message_authenticator)
+			#ifdef HAVE_LIBSSL
+				,conf->radsec == 2 ? "try" : ( conf->radsec ? "yes" : "no"),
 				print_bool(conf->ssl_verify),
 				print_string(conf->cert),
 				print_string(conf->key),
 				print_string(conf->ca)
+			#endif
 		);
 	}
 
@@ -831,11 +860,9 @@ use_ipv6:
 	return 0;
 }
 
+#ifdef HAVE_LIBSSL
 static SSL_CTX* initialize_ssl(const char *certfile,const char *keyfile,const char *cafilename)
 {
-	//OpenSSL_add_all_algorithms();
-	//if( SSL_library_init() < 0) return 0;
-	//SSL_load_error_strings();
 	SSL_CTX *ctx;
 	char error_string[BUFFER_SIZE];
 	if( !(ctx = SSL_CTX_new(TLS_client_method()))) return NULL;
@@ -866,6 +893,7 @@ static SSL_CTX* initialize_ssl(const char *certfile,const char *keyfile,const ch
 	SSL_CTX_free(ctx);
 	return NULL;
 }
+#endif
 
 /*
  * allocate and open a local port for communication with the RADIUS
@@ -897,12 +925,14 @@ static int initialize(radius_conf_t *conf, int accounting)
 	conf->sockfd = -1;
 	conf->sockfd6 = -1;
 
+#ifdef HAVE_LIBSSL
 	/* Setup OpenSSL and certificates if radsec is enabled */
 	if(conf->radsec && conf->cert && conf->key) {
 		if( !(conf->ssl = initialize_ssl(conf->cert, conf->key, conf->ca ? conf->ca : NULL))) {
 			_pam_log(LOG_ERR,"Could not initialize SSL, all RADSEC servers are disabled");
 		}
 	}
+#endif
 
 	/* the first time around, read the configuration file */
 	fp = fopen (conf->conf_file, "r");
@@ -1054,6 +1084,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 		/* Check if TCP */
 		if(!strncmp("tcp://",hostname,6)) server->proto = rad_proto_tcp;
+	#ifdef HAVE_LIBSSL
 		else if(!strncmp("tls://",hostname,6)) {
 			if(!conf->ssl) {
 				if(conf->radsec == 1) {
@@ -1070,6 +1101,12 @@ static int initialize(radius_conf_t *conf, int accounting)
 			if(conf->ssl && conf->radsec == 1) server->proto = rad_proto_sec;
 			else server->proto = rad_proto_udp;
 		}
+	#else
+		else if(!strncmp("tls://",hostname,6)) {
+			server->proto = rad_proto_udp;
+			_pam_log(LOG_WARNING,"RADSEC unsupported. server %s fallback to UDP", hostname);
+		}
+	#endif
 		else server->proto = rad_proto_udp;
 
 		*last = server;
@@ -1262,7 +1299,11 @@ static int ipaddr_cmp(struct sockaddr_storage const *a, struct sockaddr_storage 
 }
 
 
-static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmout,SSL *ssl)
+static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmout 
+#ifdef HAVE_LIBSSL 
+,SSL *ssl
+#endif
+)
 {
 	int rcode;
 	int flags;
@@ -1341,13 +1382,16 @@ static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmou
 			if(!done) {
 				if(getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (void*)&flags,&len) ==-1) return -1;
 				if(!flags) {
+				#ifdef HAVE_LIBSSL
 					if(!ssl) break; /* TCP connected we are done */
+				#endif
 					done = 1;
 				} else {
 					errno = flags;
 					return -1;
 				}
 			}
+		#ifdef HAVE_LIBSSL
 			if( (rcode = SSL_connect(ssl)) < 1) {
 				int err;
 				err	= SSL_get_error(ssl, rcode);
@@ -1374,6 +1418,7 @@ static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmou
 				//_pam_log(LOG_ERR,"RADIUS server TLS handshake failed: %u: %u: %s", rcode, err, error_string);
 				return -1;
 			}
+		#endif
 			break;
 		}
 	}
@@ -1408,7 +1453,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 	socklen_t salen;
 	struct sockaddr_storage sockaddr_storage;
 
+#ifdef HAVE_LIBSSL
 	SSL *ssl=NULL;
+#endif
 	/* ************************************************************ */
 	/* Now that we're done building the request, we can send it */
 
@@ -1467,6 +1514,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		if(server->proto) {
 			if(conf->debug) _pam_log(LOG_DEBUG,"Setup connection for %s\n",server->hostname);
 
+		#ifdef HAVE_LIBSSL
 			if(server->proto == rad_proto_sec) {
 				if(!(ssl=SSL_new(conf->ssl))) {
 					_pam_log(LOG_ERR,"RADIUS server %s TLS initialization failed", server->hostname);
@@ -1475,20 +1523,29 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				}
 				SSL_set_fd(ssl,sockfd);
 			}
+		#endif
 
-			rcode = connect_tmout(sockfd, server->ip, server->ip->sa_family == AF_INET? sizeof(struct sockaddr_in): sizeof(struct sockaddr_in6), server->timeout, server->proto == rad_proto_sec ? ssl : NULL);
+			rcode = connect_tmout(sockfd, server->ip, server->ip->sa_family == AF_INET? sizeof(struct sockaddr_in): sizeof(struct sockaddr_in6), server->timeout
+			#ifdef HAVE_LIBSSL
+				, server->proto == rad_proto_sec ? ssl : NULL
+			#endif
+			);
 			if(rcode < 0) {
-				int err;
 				char error_string[BUFFER_SIZE];
+				#ifdef HAVE_LIBSSL
 				if(rcode == -2) {
+					int err;
 					err = SSL_get_error(ssl, rcode);
 					ERR_error_string(err, error_string);
 				}
-				else get_error_string(errno, error_string, sizeof(error_string));
+				else 
+				#endif
+				get_error_string(errno, error_string, sizeof(error_string));
 				_pam_log(LOG_ERR,"%s server %s connection failed: %s\n", server->proto == rad_proto_tcp ? "RADIUS": "RADSEC", server->hostname, error_string);
 				ok = FALSE;
 				goto next;
 			}
+			#ifdef HAVE_LIBSSL
 			if(server->proto == rad_proto_sec) {
 				int err;
 				char certname[1000];
@@ -1510,6 +1567,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				}
 			}
 			else if(conf->debug) {
+			#else
+			if(conf->debug) {
+			#endif
 				_pam_log(LOG_DEBUG,"RADIUS server %s connected\n", server->hostname);
 			}
 		}
@@ -1524,6 +1584,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		total_length = ntohs(request->length);
 
 		/* send the packet */
+	#ifdef HAVE_LIBSSL
 		if(server->proto == rad_proto_sec) {
 			if( (rcode = SSL_write(ssl, request, total_length)) < 1) {
 				int err=SSL_get_error(ssl, rcode);
@@ -1539,6 +1600,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				goto next;		/* skip to the next server */
 			}
 		} else {
+	#endif
 		if (sendto(sockfd, (char *) request, total_length, MSG_NOSIGNAL, server->ip, salen) < 0) {
 			char error_string[BUFFER_SIZE];
 			get_error_string(errno, error_string, sizeof(error_string));
@@ -1547,7 +1609,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			ok = FALSE;
 			goto next;		/* skip to the next server */
 		}
+	#ifdef HAVE_LIBSSL
 		}
+	#endif
 
 		/* ************************************************************ */
 		/* Wait for the response, and verify it. */
@@ -1621,7 +1685,10 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 				salen = sizeof(sockaddr_storage);
 
 				int rlen;
-				if(server->proto == rad_proto_sec) {
+				if(server->proto == rad_proto_tcp) {
+					rlen=recv(sockfd, (void*)(response+total_length), BUFFER_SIZE-total_length, 0);
+			#ifdef HAVE_LIBSSL
+				} else if(server->proto == rad_proto_sec) {
 					if( (rlen=SSL_read(ssl,response+total_length, BUFFER_SIZE-total_length)) < 1) {
 						int err=SSL_get_error(ssl, rlen);
 						if(err == SSL_ERROR_WANT_READ) {
@@ -1652,8 +1719,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 							goto next;
 						}
 					}
-				} else if(server->proto == rad_proto_tcp) {
-					rlen=recv(sockfd, (void*)(response+total_length), BUFFER_SIZE-total_length, 0);
+			#endif
 				} else {
 					rlen=recvfrom(sockfd, (void *) response, BUFFER_SIZE, 0, (struct sockaddr *) &sockaddr_storage, &salen);
 				}
@@ -1772,10 +1838,12 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 			_pam_forget(old->secret);
 			free(old->hostname);
+		#ifdef HAVE_LIBSSL
 			if(ssl) {
 				SSL_free(ssl);
 				ssl=NULL;
 			}
+		#endif
 			if(old->sockfd != -1) close(old->sockfd);
 			if(old->sockfd6 != -1) close(old->sockfd6);
 			free(old);
@@ -1801,7 +1869,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		}
 	}
 
+#ifdef HAVE_LIBSSL
 	if(ssl) SSL_free(ssl);
+#endif
 	if (!server) {
 		_pam_log(LOG_ERR, "All RADIUS servers failed to respond.");
 		if (conf->localifdown)
@@ -1934,7 +2004,9 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	 * Then, open a socket, and bind it to a port
 	 */
 	retval = initialize(&config, FALSE);
+#ifdef HAVE_LIBSSL
 	if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 	PAM_FAIL_CHECK;
 
 	/*
@@ -1943,7 +2015,9 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	 */
 	if (!config.client_id) {
 		retval = pam_get_item(pamh, PAM_SERVICE, (CONST void **) &config.client_id);
+#ifdef HAVE_LIBSSL
 		if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 		PAM_FAIL_CHECK;
 	}
 
@@ -2185,8 +2259,10 @@ do_next:
 	if (config.sockfd6 >= 0) close(config.sockfd6);
 	
 	cleanup(config.server);
+#ifdef HAVE_LIBSSL
 	if (config.ssl) 
 		SSL_CTX_free(config.ssl);
+#endif
 
 	_pam_forget(password);
 	_pam_forget(resp2challenge);
@@ -2244,7 +2320,9 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	 * Then, open a socket, and bind it to a port
 	 */
 	retval = initialize(&config, TRUE);
+#ifdef HAVE_LIBSSL
 	if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 	PAM_FAIL_CHECK;
 
 	/*
@@ -2253,7 +2331,9 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	 */
 	if (!config.client_id) {
 		retval = pam_get_item(pamh, PAM_SERVICE, (CONST void **) &config.client_id);
+#ifdef HAVE_LIBSSL
 		if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 		PAM_FAIL_CHECK;
 	}
 
@@ -2322,8 +2402,10 @@ error:
 	if (config.sockfd6 >= 0)
 		close(config.sockfd6);
 	cleanup(config.server);
+#ifdef HAVE_LIBSSL
 	if (config.ssl) 
 		SSL_CTX_free(config.ssl);
+#endif
 
 	return retval;
 }

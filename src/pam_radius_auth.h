@@ -36,9 +36,11 @@
 #include <poll.h>
 #endif
 
+#ifdef HAVE_LIBSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
+#endif
 
 #if defined(HAVE_SECURITY_PAM_APPL_H)
 #  include <security/pam_appl.h>
@@ -196,12 +198,14 @@ typedef struct radius_conf_t {
 	int require_message_authenticator;
 	uint8_t *message_authenticator;
 	char hostname[MAXHOSTNAMELEN + 1];
+#ifdef HAVE_LIBSSL
 	int radsec;
 	int ssl_verify;
 	SSL_CTX *ssl;
 	CONST char *cert;
 	CONST char *key;
 	CONST char *ca;
+#endif
 } radius_conf_t;
 
 #endif /* PAM_RADIUS_H */

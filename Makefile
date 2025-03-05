@@ -41,7 +41,7 @@ CFLAGS += -Wall
 # CFLAGS =
 
 #LDFLAGS += -shared -Wl,--version-script=pamsymbols.ver
-LDFLAGS += -shared -lssl -lcrypto
+LDFLAGS += -shared
 
 ######################################################################
 #
