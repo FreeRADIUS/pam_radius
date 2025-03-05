@@ -172,6 +172,7 @@ typedef struct radius_server_t {
 	char *hostname;
 	char *secret;
 	int timeout;
+	int connect_timeout;
 	int accounting;
 	int sockfd;
 	int sockfd6;

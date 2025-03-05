@@ -911,7 +911,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	char *p;
 	FILE *fp;
 	radius_server_t *server, **last;
-	int timeout;
+	int timeout, ctimeout;
 	int line = 0;
 	char src_ip[MAX_IP_LEN+1];
 	int valid_src_ip;
@@ -977,6 +977,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		 *	Initialize the optional variables.
 		 */
 		timeout = 3;
+		ctimeout = 1;
 		src_ip[0] = 0;
 		vrf[0] = 0;
 
@@ -1030,6 +1031,10 @@ static int initialize(radius_conf_t *conf, int accounting)
 		/* Read timout */
 		if((tok=strtok_r(p," \t\r\n", &pptr))) {
 			timeout = strtol(tok, &eptr, 10);
+			if(eptr != tok && *eptr == ',') {
+				tok=eptr + 1;
+				ctimeout = strtol(tok, &eptr, 10);
+			}
 		#ifdef _PARSE_STRICT_
 			if(eptr != tok && *eptr=='\0')
 		#else
@@ -1127,6 +1132,13 @@ static int initialize(radius_conf_t *conf, int accounting)
 			server->timeout = 60;
 		} else {
 			server->timeout = timeout;
+		}
+		if (ctimeout < 1) {
+			server->connect_timeout = 1;
+		} else if (ctimeout > 60) {
+			server->connect_timeout = 60;
+		} else {
+			server->connect_timeout = ctimeout;
 		}
 
 		server->sockfd = -1;
@@ -1525,7 +1537,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			}
 		#endif
 
-			rcode = connect_tmout(sockfd, server->ip, server->ip->sa_family == AF_INET? sizeof(struct sockaddr_in): sizeof(struct sockaddr_in6), server->timeout
+			rcode = connect_tmout(sockfd, server->ip, server->ip->sa_family == AF_INET? sizeof(struct sockaddr_in): sizeof(struct sockaddr_in6), server->connect_timeout
 			#ifdef HAVE_LIBSSL
 				, server->proto == rad_proto_sec ? ssl : NULL
 			#endif
