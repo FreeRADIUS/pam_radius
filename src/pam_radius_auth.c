@@ -977,7 +977,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 		 *	Initialize the optional variables.
 		 */
 		timeout = 3;
-		ctimeout = 1;
+		ctimeout = 2;
 		src_ip[0] = 0;
 		vrf[0] = 0;
 
@@ -1310,7 +1310,6 @@ static int ipaddr_cmp(struct sockaddr_storage const *a, struct sockaddr_storage 
 	return 0;
 }
 
-
 static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmout 
 #ifdef HAVE_LIBSSL 
 ,SSL *ssl
@@ -1325,7 +1324,7 @@ static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmou
 #else
 	fd_set set;
 #endif
-	time_t now, end;
+	struct timeval now, end;
 	struct timeval tv;
 	socklen_t len=sizeof(flags);
 
@@ -1352,36 +1351,24 @@ static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmou
 	FD_ZERO(&set); 
 	FD_SET(sockfd, &set);    
 #endif
-	time(&now);
+	gettimeofday(&end,NULL);
 	tv.tv_sec = tmout; 
 	tv.tv_usec = 0;
-	end = now + tv.tv_sec;
+	end.tv_sec += tv.tv_sec;
 
 	int wr = 1;
 	while(1) {
-#ifdef HAVE_POLL_H
-		time(&now);
-		if(now > end) {
-			tv.tv_sec = 0;
-		} else {
-			tv.tv_sec = end - now;
-		}
-		if (tv.tv_sec == 0) {   /* keep waiting */
-			tv.tv_sec = 1;
-		}
-#endif
-		 //_pam_log(LOG_DEBUG,"TM=%u.%u",tv.tv_sec,tv.tv_usec);
+	#ifndef NDEBUG
+		_pam_log(LOG_DEBUG,"DEBUG: connect: TM=%u.%u WAIT %u ms [start %u.%u now %u.%u]",tv.tv_sec,tv.tv_usec,tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000),end.tv_sec,end.tv_usec,now.tv_sec,now.tv_usec);
+	#endif
 #ifdef HAVE_POLL_H
 		wr = wr; /* avoid compiler warning */
-		rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000);
+		rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000));
 #else
 		rcode = select(sockfd + 1, wr ? NULL : &set, wr ? &set : NULL, NULL, &tv);
 #endif
 		if(rcode == -1) {
-			if (errno == EINTR) {	/* we were interrupted */
-				continue;
-			}
-			return -1;
+			if (errno != EINTR) return -1;
 		}
 		else if(!rcode) {
 			errno=ETIMEDOUT;
@@ -1407,32 +1394,38 @@ static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmou
 			if( (rcode = SSL_connect(ssl)) < 1) {
 				int err;
 				err	= SSL_get_error(ssl, rcode);
-				//_pam_log(LOG_DEBUG,"SSL connect returns %d %u %s",rcode,err, (err==SSL_ERROR_WANT_READ? "read":(err==SSL_ERROR_WANT_WRITE?"write":"")));
 				switch(err) {
+					case SSL_ERROR_SYSCALL:
+						if(!errno) errno=ECONNRESET;
+						return -1;
+					default:
+						return -2;
 					case SSL_ERROR_WANT_READ:
 						wr = 0;
 					#ifdef HAVE_POLL_H
 						pollfds[0].events = POLLIN;
 					#endif
-						continue;
+						break;
 					case SSL_ERROR_WANT_WRITE:
 						wr = 1;
 					#ifdef HAVE_POLL_H
 						pollfds[0].events = POLLOUT;
 					#endif
-						continue;
-					case SSL_ERROR_SYSCALL:
-						if(!errno) errno=ECONNRESET;
 						break;
-					default:
-						return -2;
 				}
-				//_pam_log(LOG_ERR,"RADIUS server TLS handshake failed: %u: %u: %s", rcode, err, error_string);
-				return -1;
 			}
+			else 
 		#endif
 			break;
 		}
+#ifdef HAVE_POLL_H
+		/* calculate next timeout */
+		gettimeofday(&now,NULL);
+		timersub(&end,&now,&tv);
+		if(tv.tv_sec < 0 ) {
+			tv.tv_sec = tv.tv_usec = 0;
+		}
+#endif
 	}
 	if((flags=fcntl(sockfd, F_GETFL, 0)) == -1) return -1;
 	flags &= (~O_NONBLOCK);
@@ -1455,7 +1448,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #endif
 	struct timeval tv;
 
-	time_t now, end;
+	struct timeval now, end;
 	int rcode;
 	radius_server_t *server = conf->server;
 	int ok;
@@ -1627,11 +1620,11 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 		/* ************************************************************ */
 		/* Wait for the response, and verify it. */
-		time(&now);
+		gettimeofday(&end,NULL);
 
 		tv.tv_sec = server->timeout;    /* wait for the specified time */
 		tv.tv_usec = 0;
-		end = now + tv.tv_sec;
+		end.tv_sec += tv.tv_sec;
 
 #ifdef HAVE_POLL_H
 		pollfds[0].fd = sockfd;   /* wait only for the RADIUS UDP socket */
@@ -1645,8 +1638,11 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		ok = TRUE;
 		total_length = 0;
 		while (ok) {
+		#ifndef NDEBUG
+			_pam_log(LOG_DEBUG,"DEBUG: recv: TM=%u.%u WAIT %u ms [start %u.%u now %u.%u]",tv.tv_sec,tv.tv_usec,tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000),end.tv_sec,end.tv_usec,now.tv_sec,now.tv_usec);
+		#endif
 #ifdef HAVE_POLL_H
-			rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000);
+			rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000));
 #else
 			rcode = select(sockfd + 1, &set, NULL, NULL, &tv);
 #endif
@@ -1664,9 +1660,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			if (rcode < 0) {
 				/* poll returned an error */
 				if (errno == EINTR) {	/* we were interrupted */
-					time(&now);
+					gettimeofday(&now,NULL);
 
-					if (now > end) {
+					if(timercmp(&now,&end,>)) {
 						_pam_log(LOG_ERR, "RADIUS server %s failed to respond",
 							 server->hostname);
 						if (server->proto == rad_proto_udp && --server_tries) goto send;
@@ -1674,9 +1670,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 						break;		/* exit from the loop */
 					}
 
-					tv.tv_sec = end - now;
-					if (tv.tv_sec == 0) {   /* keep waiting */
-						tv.tv_sec = 1;
+					timersub(&end,&now,&tv);
+					if(tv.tv_sec < 0  ) {
+						tv.tv_sec = tv.tv_usec = 0;
 					}
 				} else {			/* not an interrupt, it was a real error */
 					char error_string[BUFFER_SIZE];
@@ -1705,14 +1701,11 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 						int err=SSL_get_error(ssl, rlen);
 						if(err == SSL_ERROR_WANT_READ) {
 						#ifdef HAVE_POLL_H
-							time(&now);
-							if(now > end) {
-								tv.tv_sec=0;
-							} else {
-								tv.tv_sec = end - now;
-								if (tv.tv_sec == 0) {   /* keep waiting */
-									tv.tv_sec = 1;
-								}
+							/* calculate next timeout */
+							gettimeofday(&now,NULL);
+							timersub(&end,&now,&tv);
+							if(tv.tv_sec < 0 ) {
+								tv.tv_sec = tv.tv_usec = 0;
 							}
 						#endif
 							continue;
@@ -1745,7 +1738,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					goto next;
 				}
 				#ifndef NDEBUG
-				_pam_log(LOG_DEBUG,"%s recvfrom len=%u tot=%u\n",server->hostname,rlen,total_length);
+				_pam_log(LOG_DEBUG,"DEBUG: %s recv len=%u tot=%u\n",server->hostname,rlen,total_length);
 				#endif
 				if(server->proto) {
 					total_length += rlen;
@@ -1758,14 +1751,11 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					if( (total_length < (int)offsetof(AUTH_HDR,vector))  /* Check if you have read up to the response length  and */
 						|| (ntohs(response->length) > total_length) ) {  /* Check if you have read all the response or wait for more */
 					#ifdef HAVE_POLL_H
-						time(&now);
-						if(now > end) {
-							tv.tv_sec=0;
-						} else {
-							tv.tv_sec = end - now;
-							if (tv.tv_sec == 0) {   /* keep waiting */
-								tv.tv_sec = 1;
-							}
+						/* calculate next timeout */
+						gettimeofday(&now,NULL);
+						timersub(&end,&now,&tv);
+						if(tv.tv_sec < 0 ) {
+							tv.tv_sec = tv.tv_usec = 0;
 						}
 					#endif
 						continue;
