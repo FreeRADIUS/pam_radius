@@ -749,6 +749,9 @@ static void cleanup(radius_server_t *server)
 		_pam_drop(server->hostname);
 		_pam_forget(server->secret);
 
+	#ifdef HAV_LIBSSL
+		if (server->ssl) SSL_free(server->ssl);
+	#endif
 		if (server->sockfd != -1) close(server->sockfd);
 
 		if (server->sockfd6 != -1) close(server->sockfd6);
@@ -1178,7 +1181,6 @@ static int initialize(radius_conf_t *conf, int accounting)
 			if(server->proto) _pam_log(LOG_DEBUG,"Use TCP for %s\n",server->hostname);
 		#endif
 			if (initialize_sockets(conf, &server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf, server->proto) != 0) {
-
 				goto error;
 			}
 		}
@@ -1458,9 +1460,6 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 	socklen_t salen;
 	struct sockaddr_storage sockaddr_storage;
 
-#ifdef HAVE_LIBSSL
-	SSL *ssl=NULL;
-#endif
 	/* ************************************************************ */
 	/* Now that we're done building the request, we can send it */
 
@@ -1515,67 +1514,81 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 		server_tries = tries;
 
-		/* If TCP we must connect */
+		/* If TCP/TLS check if connected and otherwise connect */
 		if(server->proto) {
-			if(conf->debug) _pam_log(LOG_DEBUG,"Setup connection for %s\n",server->hostname);
+			
+			salen = sizeof(sockaddr_storage);
+			rcode = getpeername(sockfd, (struct sockaddr *) &sockaddr_storage, &salen);
+			if(rcode == -1 && errno != ENOTCONN) {
+				char error_string[BUFFER_SIZE];
+				get_error_string(errno, error_string, sizeof(error_string));
+				_pam_log(LOG_ERR, "RADIUS server %s getpeername failed: %s",
+				 	server->hostname, error_string);
+				ok = FALSE;
+				goto next;		/* skip to the next server */
+
+			} else if(rcode == -1) {
+
+				if(conf->debug) _pam_log(LOG_DEBUG,"Setup connection for %s\n",server->hostname);
 
 		#ifdef HAVE_LIBSSL
-			if(server->proto == rad_proto_sec) {
-				if(!(ssl=SSL_new(conf->ssl))) {
-					_pam_log(LOG_ERR,"RADIUS server %s TLS initialization failed", server->hostname);
-					ok = FALSE;
-					goto next;
-				}
-				SSL_set_fd(ssl,sockfd);
-			}
-		#endif
-
-			rcode = connect_tmout(sockfd, server->ip, server->ip->sa_family == AF_INET? sizeof(struct sockaddr_in): sizeof(struct sockaddr_in6), server->connect_timeout
-			#ifdef HAVE_LIBSSL
-				, server->proto == rad_proto_sec ? ssl : NULL
-			#endif
-			);
-			if(rcode < 0) {
-				char error_string[BUFFER_SIZE];
-				#ifdef HAVE_LIBSSL
-				if(rcode == -2) {
-					int err;
-					err = SSL_get_error(ssl, rcode);
-					ERR_error_string(err, error_string);
-				}
-				else 
-				#endif
-				get_error_string(errno, error_string, sizeof(error_string));
-				_pam_log(LOG_ERR,"%s server %s connection failed: %s\n", server->proto == rad_proto_tcp ? "RADIUS": "RADSEC", server->hostname, error_string);
-				ok = FALSE;
-				goto next;
-			}
-			#ifdef HAVE_LIBSSL
-			if(server->proto == rad_proto_sec) {
-				int err;
-				char certname[1000];
-				X509 *cert=SSL_get_peer_certificate(ssl);
-				if(!cert) {
-					_pam_log(LOG_ERR,"RADSEC server %s could not get certificate", server->hostname);
-					ok = FALSE;
-					goto next;
-				}
-				X509_NAME_oneline(X509_get_subject_name(cert),certname,sizeof(certname));
-				X509_free(cert);
-				if(conf->debug) _pam_log(LOG_DEBUG,"RADSEC server %s connected: %s", server->hostname, certname);
-				if((err=SSL_get_verify_result(ssl))!=X509_V_OK) {
-					_pam_log(conf->ssl_verify ? LOG_ERR : LOG_WARNING, "RADSEC server %s certificate '%s' invalid: %s", server->hostname, certname, X509_verify_cert_error_string(err));
-					if(conf->ssl_verify) {
+				if(server->proto == rad_proto_sec) {
+					if(!(server->ssl=SSL_new(conf->ssl))) {
+						_pam_log(LOG_ERR,"RADIUS server %s TLS initialization failed", server->hostname);
 						ok = FALSE;
 						goto next;
 					}
+					SSL_set_fd(server->ssl,sockfd);
 				}
-			}
-			else if(conf->debug) {
-			#else
-			if(conf->debug) {
+		#endif
+
+				rcode = connect_tmout(sockfd, server->ip, server->ip->sa_family == AF_INET? sizeof(struct sockaddr_in): sizeof(struct sockaddr_in6), server->connect_timeout
+			#ifdef HAVE_LIBSSL
+				, server->proto == rad_proto_sec ? server->ssl : NULL
 			#endif
-				_pam_log(LOG_DEBUG,"RADIUS server %s connected\n", server->hostname);
+				);
+				if(rcode < 0) {
+					char error_string[BUFFER_SIZE];
+					#ifdef HAVE_LIBSSL
+					if(rcode == -2) {
+						int err;
+						err = SSL_get_error(server->ssl, rcode);
+						ERR_error_string(err, error_string);
+					}
+					else 
+					#endif
+					get_error_string(errno, error_string, sizeof(error_string));
+					_pam_log(LOG_ERR,"%s server %s %s failed: %s\n", server->proto == rad_proto_tcp ? "RADIUS": "RADSEC", server->hostname, rcode == -2 ? "handshake" : "connection", error_string);
+					ok = FALSE;
+					goto next;
+				}
+				#ifdef HAVE_LIBSSL
+				if(server->proto == rad_proto_sec) {
+					int err;
+					char certname[1000];
+					X509 *cert=SSL_get_peer_certificate(server->ssl);
+					if(!cert) {
+						_pam_log(LOG_ERR,"RADSEC server %s could not get certificate", server->hostname);
+						ok = FALSE;
+						goto next;
+					}
+					X509_NAME_oneline(X509_get_subject_name(cert),certname,sizeof(certname));
+					X509_free(cert);
+					if(conf->debug) _pam_log(LOG_DEBUG,"RADSEC server %s connected: %s", server->hostname, certname);
+					if((err=SSL_get_verify_result(server->ssl))!=X509_V_OK) {
+						_pam_log(conf->ssl_verify ? LOG_ERR : LOG_WARNING, "RADSEC server %s certificate '%s' invalid: %s", server->hostname, certname, X509_verify_cert_error_string(err));
+						if(conf->ssl_verify) {
+							ok = FALSE;
+							goto next;
+						}
+					}
+				}
+				else if(conf->debug) {
+				#else
+				if(conf->debug) {
+				#endif
+					_pam_log(LOG_DEBUG,"RADIUS server %s connected\n", server->hostname);
+				}
 			}
 		}
 	send:
@@ -1591,8 +1604,8 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		/* send the packet */
 	#ifdef HAVE_LIBSSL
 		if(server->proto == rad_proto_sec) {
-			if( (rcode = SSL_write(ssl, request, total_length)) < 1) {
-				int err=SSL_get_error(ssl, rcode);
+			if( (rcode = SSL_write(server->ssl, request, total_length)) < 1) {
+				int err=SSL_get_error(server->ssl, rcode);
 				char error_string[BUFFER_SIZE];
 				if( err == SSL_ERROR_SYSCALL) {
 					get_error_string(errno, error_string, sizeof(error_string));
@@ -1697,8 +1710,8 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					rlen=recv(sockfd, (void*)(response+total_length), BUFFER_SIZE-total_length, 0);
 			#ifdef HAVE_LIBSSL
 				} else if(server->proto == rad_proto_sec) {
-					if( (rlen=SSL_read(ssl,response+total_length, BUFFER_SIZE-total_length)) < 1) {
-						int err=SSL_get_error(ssl, rlen);
+					if( (rlen=SSL_read(server->ssl,response+total_length, BUFFER_SIZE-total_length)) < 1) {
+						int err=SSL_get_error(server->ssl, rlen);
 						if(err == SSL_ERROR_WANT_READ) {
 						#ifdef HAVE_POLL_H
 							/* calculate next timeout */
@@ -1841,9 +1854,9 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			_pam_forget(old->secret);
 			free(old->hostname);
 		#ifdef HAVE_LIBSSL
-			if(ssl) {
-				SSL_free(ssl);
-				ssl=NULL;
+			if(server->ssl) {
+				SSL_free(server->ssl);
+				server->ssl=NULL;
 			}
 		#endif
 			if(old->sockfd != -1) close(old->sockfd);
@@ -1871,9 +1884,6 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 		}
 	}
 
-#ifdef HAVE_LIBSSL
-	if(ssl) SSL_free(ssl);
-#endif
 	if (!server) {
 		_pam_log(LOG_ERR, "All RADIUS servers failed to respond.");
 		if (conf->localifdown)

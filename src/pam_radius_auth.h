@@ -178,6 +178,9 @@ typedef struct radius_server_t {
 	int sockfd6;
 	enum radius_server_proto { rad_proto_udp=0, rad_proto_tcp=1, rad_proto_sec=2} proto;
 	char vrf[IFNAMSIZ];
+#ifdef HAVE_LIBSSL
+	SSL *ssl;
+#endif
 } radius_server_t;
 
 typedef struct radius_conf_t {
