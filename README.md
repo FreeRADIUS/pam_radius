@@ -16,6 +16,8 @@ cert = absolute pathname of the client certificate file (PEM format)
 
 key = absolute pathname of the client private key file
 
+key_password = optional private key password (if encrypted)
+
 ca = absolute pathname to the know and authentication CAs file
 
 By default servers certificates are verified, you may ignore failures by adding the "verify=no" option.

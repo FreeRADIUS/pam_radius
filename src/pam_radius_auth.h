@@ -208,6 +208,7 @@ typedef struct radius_conf_t {
 	SSL_CTX *ssl;
 	CONST char *cert;
 	CONST char *key;
+	CONST char *keypasswd;
 	CONST char *ca;
 #endif
 } radius_conf_t;

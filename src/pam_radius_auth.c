@@ -249,6 +249,13 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
 		#endif
 
+		} else if (!strncmp(arg, "key_password=", 13)) {
+		#ifdef HAVE_LIBSSL
+			conf->keypasswd= arg + 13;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
+
 		} else if (!strncmp(arg, "ca=", 3)) {
 		#ifdef HAVE_LIBSSL
 			conf->ca= arg + 3;
@@ -864,7 +871,14 @@ use_ipv6:
 }
 
 #ifdef HAVE_LIBSSL
-static SSL_CTX* initialize_ssl(const char *certfile,const char *keyfile,const char *cafilename)
+static int ssl_get_password(char *buf, int sz, __attribute__((unused)) int rwflag, void *userdata)
+{
+	strncpy(buf, *((char**)userdata), sz);
+	buf[sz-1]='\0';
+	return strlen(buf);
+}
+
+static SSL_CTX* initialize_ssl(const char *certfile,const char *keyfile,const char *cafilename,const char *password)
 {
 	SSL_CTX *ctx;
 	char error_string[BUFFER_SIZE];
@@ -882,6 +896,11 @@ static SSL_CTX* initialize_ssl(const char *certfile,const char *keyfile,const ch
 		_pam_log(LOG_ERR,"Could not load CAs: %s", cafilename, ERR_error_string(ERR_get_error(), error_string));
 		SSL_CTX_free(ctx);
 		return NULL;
+	}
+	if(password) {
+		SSL_CTX_set_default_passwd_cb(ctx, (pem_password_cb*)&ssl_get_password);
+		/* We are passing &password to avoid warning on 'const' being discarded */
+		SSL_CTX_set_default_passwd_cb_userdata(ctx, &password);
 	}
 	if( SSL_CTX_use_certificate_file(ctx, certfile, SSL_FILETYPE_PEM) == 1) {
 		if( SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM) == 1) {
@@ -931,7 +950,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 #ifdef HAVE_LIBSSL
 	/* Setup OpenSSL and certificates if radsec is enabled */
 	if(conf->radsec && conf->cert && conf->key) {
-		if( !(conf->ssl = initialize_ssl(conf->cert, conf->key, conf->ca ? conf->ca : NULL))) {
+		if( !(conf->ssl = initialize_ssl(conf->cert, conf->key, conf->ca ? conf->ca : NULL, conf->keypasswd ? conf->keypasswd : NULL))) {
 			_pam_log(LOG_ERR,"Could not initialize SSL, all RADSEC servers are disabled");
 		}
 	}
