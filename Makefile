@@ -55,7 +55,7 @@ all: pam_radius_auth.so
 #
 export CFLAGS LDFLAGS
 
-src/pam_radius_auth.o: src/pam_radius_auth.c src/pam_radius_auth.h
+src/pam_radius_auth.o: src/pam_radius_auth.c src/pam_radius_auth.h src/config.h
 	@$(MAKE) -C src $(notdir $@)
 
 src/md5.o: src/md5.c src/md5.h
