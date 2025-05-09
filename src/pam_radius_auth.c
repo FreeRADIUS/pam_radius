@@ -1644,7 +1644,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 				goto do_next;
 			}
 
-			val = ntohl(*((int *)a_mpl->data));
+			memcpy(&val, &a_mpl->data, sizeof(val));
+			val = ntohl(val);
 			sprintf(priv, "Privilege=%d", val);
 
 			/* Save Management-Privilege-Level value in PAM environment variable 'Privilege' */
