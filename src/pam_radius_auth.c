@@ -1610,8 +1610,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	if (response->code == PW_ACCESS_ACCEPT) {
 		attribute_t *attr_fip, *attr_class;
 
-		retval = PAM_SUCCESS;
-
 		/* Read Management-Privilege-Level attribute from the response */
 		/* RFC 5607:
 		 *  The Management-Privilege-Level (136) Attribute indicates the integer-
@@ -1629,10 +1627,15 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		 *  packet as if it had been an Access-Reject.
 		 */
 
+		/*
+		 *	If privilege_level is set, then  Management-Privilege-Level is required.
+		 */
 		if(config.privilege_level) {
 			char priv[21];
 			attribute_t *a_mpl;
 			int val;
+
+			retval = PAM_AUTHINFO_UNAVAIL; /* default if anything goes wrong */
 
 			if ((a_mpl = find_attribute(response, PW_MANAGEMENT_PRIVILEGE_LEVEL)) == NULL) {
 				_pam_log(LOG_ERR, "RADIUS Access-Accept received with Management-Privilege-Level missing");
@@ -1649,13 +1652,15 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			sprintf(priv, "Privilege=%d", val);
 
 			/* Save Management-Privilege-Level value in PAM environment variable 'Privilege' */
-			retval = pam_putenv(pamh, priv);
-			if(retval != PAM_SUCCESS) {
+			if(pam_putenv(pamh, priv) != PAM_SUCCESS) {
 				_pam_log(LOG_ERR, "unable to set PAM environment variable : Privilege");
 				goto do_next;
 			}
 		}
 
+		/*
+		 *	Framed-IP-Address is used, but is not required.
+		 */
 		if ((attr_fip = find_attribute(response, PW_FRAMED_ADDRESS))) {
 			char frameip[100];
 			struct in_addr ip_addr;
@@ -1663,15 +1668,16 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			memcpy(&ip_addr.s_addr, attr_fip->data, 4);
 
 			snprintf(frameip, sizeof(frameip), "Framed-IP-Address=%s", inet_ntoa(ip_addr));
-			retval = pam_putenv(pamh, frameip);
-			if(retval != PAM_SUCCESS) {
+			if(pam_putenv(pamh, frameip) != PAM_SUCCESS) {
 				_pam_log(LOG_ERR, "unable to set PAM environment variable : Framed-IP-Address");
-			}
-			else {
+			} else {
 				_pam_log(LOG_DEBUG, "Set PAM environment variable : %s", frameip);
 			}
 		}
 
+		/*
+		 *	Class is used, but is not required.
+		 */
 		if ((attr_class = find_attribute(response, PW_CLASS))) {
 			char *buf;
 
@@ -1687,6 +1693,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 			}
 		}
 
+		retval = PAM_SUCCESS;
 	} else {
 		retval = PAM_AUTH_ERR;	/* authentication failure */
 	}
