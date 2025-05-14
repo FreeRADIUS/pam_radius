@@ -31,6 +31,7 @@
 #define PAM_SM_PASSWORD
 #define PAM_SM_SESSION
 
+#include<stddef.h>
 #include "pam_radius_auth.h"
 
 #define DPRINT if (debug) _pam_log
@@ -92,6 +93,7 @@ static void _pam_log(int err, char CONST *msg, ...)
 	syslog(err, "%s: %s", pam_module_name, buf);
 }
 
+
 /** Argument parsing
  *
  * @param[in] argc		Number of parameters
@@ -114,6 +116,10 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 
 	conf->use_ipv4 = 1;
 	conf->use_ipv6 = 1;
+#ifdef HAVE_LIBSSL
+	conf->radsec = 2; // default value try
+	conf->ssl_verify = 1;
+#endif
 
 	/*
 	 *	If either is not there, then we can't parse anything.
@@ -212,6 +218,51 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		} else if (!strcmp(arg, "require_message_authenticator")) {
 			conf->require_message_authenticator = TRUE;
 
+		} else if (!strncmp(arg, "radsec=", 7)) {
+		#ifdef HAVE_LIBSSL
+			if (!strcmp(arg + 7, "try")) conf->radsec = 2;	// If SSL fails, fallback to RADIUS UDP on tls:// 
+			if (!strcmp(arg + 7, "yes")) conf->radsec = 1;	// Always use RADSEC, even without tls:// */
+			if (!strcmp(arg + 7, "no")) conf->radsec = 0;	// Never use RADSEC, fallback to RADIUS UDP on tls://
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
+
+		} else if (!strncmp(arg, "verify=", 7)) {
+		#ifdef HAVE_LIBSSL
+			if (!strcmp(arg + 7, "yes")) conf->ssl_verify = 1;
+			if (!strcmp(arg + 7, "no")) conf->ssl_verify = 0;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
+
+		} else if (!strncmp(arg, "cert=", 5)) {
+		#ifdef HAVE_LIBSSL
+			conf->cert=arg + 5;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
+
+		} else if (!strncmp(arg, "key=", 4)) {
+		#ifdef HAVE_LIBSSL
+			conf->key= arg + 4;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
+
+		} else if (!strncmp(arg, "key_password=", 13)) {
+		#ifdef HAVE_LIBSSL
+			conf->keypasswd= arg + 13;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
+
+		} else if (!strncmp(arg, "ca=", 3)) {
+		#ifdef HAVE_LIBSSL
+			conf->ca= arg + 3;
+		#else
+			_pam_log(LOG_WARNING, "unrecognized option '%s': missing RADSEC support", arg);
+		#endif
+
 		} else {
 			_pam_log(LOG_WARNING, "unrecognized option '%s'", arg);
 		}
@@ -223,6 +274,16 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		conf->use_ipv4 = 1;
 	}
 
+#ifdef HAVE_LIBSSL
+	if(conf->radsec) {
+		if((conf->cert && !conf->key) || (!conf->cert && conf->key)) {
+			_pam_log(LOG_WARNING, "RADSEC disabled: both cert and key must be defined");
+		}
+	} else {
+		_pam_log(LOG_WARNING, "RADSEC disabled by configuration: radsec=no");
+	}
+#endif
+
 	if (conf->debug) {
 #define print_bool(cond) (cond) ? "yes" : "no"
 #define print_string(cond) (cond) ? cond : ""
@@ -230,7 +291,11 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 		_pam_log(LOG_DEBUG, "DEBUG: conf='%s' use_first_pass=%s try_first_pass=%s skip_passwd=%s retry=%d " \
 							"localifdown=%s client_id='%s' ruser=%s prompt='%s' force_prompt=%s "\
 							"prompt_attribute=%s max_challenge=%d privilege_level=%s "\
-							"require_message_authenticator=%s",
+							"require_message_authenticator=%s "
+#ifdef HAVE_LIBSSL
+							"radsec=%s verify=%s cert=%s key=%s ca=%s"
+#endif
+				,
 				conf->conf_file,
 				print_bool(ctrl & PAM_USE_FIRST_PASS),
 				print_bool(ctrl & PAM_TRY_FIRST_PASS),
@@ -245,6 +310,13 @@ static int _pam_parse(int argc, CONST char **argv, radius_conf_t *conf)
 				conf->max_challenge,
 				print_bool(conf->privilege_level),
 				print_bool(conf->require_message_authenticator)
+			#ifdef HAVE_LIBSSL
+				,conf->radsec == 2 ? "try" : ( conf->radsec ? "yes" : "no"),
+				print_bool(conf->ssl_verify),
+				print_string(conf->cert),
+				print_string(conf->key),
+				print_string(conf->ca)
+			#endif
 		);
 	}
 
@@ -335,12 +407,17 @@ static int host2server(int debug, radius_server_t *server)
 	char *p, *port;
 	int retval, n;
 
-	/* hostname might be [ipv6::address] */
+	/* hostname might be [ipv6::address] or tcp:// or tls:// */
 	strncpy(hostbuffer, server->hostname, sizeof(hostbuffer) - 1);
 
 	hostbuffer[sizeof(hostbuffer) - 1] = 0;
 	hostname = hostbuffer;
 	portstart = hostbuffer;
+
+	if (!strncmp("tcp://",hostname,6) || !strncmp("tls://",hostname,6)) {
+		hostname += 6;
+		portstart += 6;
+	}
 
 	if (hostname[0] == '[') {
 		if ((p = strchr(hostname, ']')) != NULL) {
@@ -352,14 +429,14 @@ static int host2server(int debug, radius_server_t *server)
 
 	if ((port = strchr(portstart, ':')) != NULL) {
 		*port++ = '\0';
-		if (isdigit((uint8_t)*port) && server->accounting) {
+		if (isdigit((uint8_t)*port) && server->accounting && server->proto != rad_proto_sec) {
 			if (sscanf(port, "%d", &n) == 1) {
 				snprintf(tmp, sizeof(tmp), "%d", n + 1);
 				port = tmp;
 			}
 		}
 	} else {
-		strncpy(tmp, (server->accounting) ? "radacct" : "radius", sizeof(tmp));
+		strncpy(tmp, (server->proto == rad_proto_sec) ? "radsec" : ((server->accounting) ? "radacct" : "radius"), sizeof(tmp));
 		port = tmp;
 	}
 
@@ -679,6 +756,9 @@ static void cleanup(radius_server_t *server)
 		_pam_drop(server->hostname);
 		_pam_forget(server->secret);
 
+	#ifdef HAV_LIBSSL
+		if (server->ssl) SSL_free(server->ssl);
+	#endif
 		if (server->sockfd != -1) close(server->sockfd);
 
 		if (server->sockfd6 != -1) close(server->sockfd6);
@@ -688,7 +768,7 @@ static void cleanup(radius_server_t *server)
 	}
 }
 
-static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf)
+static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockfd6, struct sockaddr_storage *salocal4, struct sockaddr_storage *salocal6, char *vrf, int tcp)
 {
 	if (!conf->use_ipv4) {
 		*sockfd = -1;
@@ -696,7 +776,8 @@ static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockf
 	}
 
 	/* open a socket.	Dies if it fails */
-	*sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	*sockfd = socket(AF_INET, (tcp? SOCK_STREAM: SOCK_DGRAM), 0);
+
 	if (*sockfd < 0) {
 		char error_string[BUFFER_SIZE];
 		get_error_string(errno, error_string, sizeof(error_string));
@@ -724,12 +805,14 @@ static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockf
 #endif
 	}
 
-	/* set up the local end of the socket communications */
-	if (bind(*sockfd, (struct sockaddr *)salocal4, sizeof (struct sockaddr_in)) < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
-		return -1;
+	/* If not TCP or has a source address set up the local end of the socket communications */
+	if(!tcp || ((struct sockaddr_in*)salocal4)->sin_addr.s_addr != 0) {
+		if (bind(*sockfd, (struct sockaddr *)salocal4, sizeof (struct sockaddr_in)) < 0) {
+			char error_string[BUFFER_SIZE];
+			get_error_string(errno, error_string, sizeof(error_string));
+			_pam_log(LOG_ERR, "Failed binding to port: %s", error_string);
+			return -1;
+		}
 	}
 
 	if (!conf->use_ipv6) {
@@ -739,7 +822,7 @@ static int initialize_sockets(radius_conf_t const *conf, int *sockfd, int *sockf
 
 use_ipv6:
 	/* open a IPv6 socket. */
-	*sockfd6 = socket(AF_INET6, SOCK_DGRAM, 0);
+	*sockfd6 = socket(AF_INET6, (tcp? SOCK_STREAM: SOCK_DGRAM), 0);
 	if (*sockfd6 < 0) {
 		char error_string[BUFFER_SIZE];
 
@@ -772,16 +855,67 @@ use_ipv6:
 #endif
 	}
 
-	/* set up the local end of the socket communications */
-	if (bind(*sockfd6, (struct sockaddr *)salocal6, sizeof (struct sockaddr_in6)) < 0) {
-		char error_string[BUFFER_SIZE];
-		get_error_string(errno, error_string, sizeof(error_string));
-		_pam_log(LOG_ERR, "Failed binding to IPv6 port: %s", error_string);
-		return -1;
+	/* If not TCP or has a source address set up the local end of the socket communications */
+	if(!tcp || memcmp(&((struct sockaddr_in6*)salocal6)->sin6_addr,&in6addr_any,sizeof(struct in6_addr))) {
+
+		if (bind(*sockfd6, (struct sockaddr *)salocal6, sizeof (struct sockaddr_in6)) < 0) {
+			char error_string[BUFFER_SIZE];
+			get_error_string(errno, error_string, sizeof(error_string));
+			_pam_log(LOG_ERR, "Failed binding to IPv6 port: %s", error_string);
+			return -1;
+		}
+
 	}
 
 	return 0;
 }
+
+#ifdef HAVE_LIBSSL
+static int ssl_get_password(char *buf, int sz, __attribute__((unused)) int rwflag, void *userdata)
+{
+	strncpy(buf, *((char**)userdata), sz);
+	buf[sz-1]='\0';
+	return strlen(buf);
+}
+
+static SSL_CTX* initialize_ssl(const char *certfile,const char *keyfile,const char *cafilename,const char *password)
+{
+	SSL_CTX *ctx;
+	char error_string[BUFFER_SIZE];
+	if( !(ctx = SSL_CTX_new(TLS_client_method()))) return NULL;
+	SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1); // ma forse meglio SSL_set_min_proto_version(sslctx,TLS1_1_VERSION);
+	SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
+	if(cafilename) {
+		if( !SSL_CTX_load_verify_locations(ctx, cafilename, NULL)) {
+			_pam_log(LOG_ERR,"Could not load CAs from '%s': %s", cafilename, ERR_error_string(ERR_get_error(), error_string));
+			SSL_CTX_free(ctx);
+			return NULL;
+		}
+	}
+	else if( !SSL_CTX_set_default_verify_paths(ctx)) {
+		_pam_log(LOG_ERR,"Could not load CAs: %s", cafilename, ERR_error_string(ERR_get_error(), error_string));
+		SSL_CTX_free(ctx);
+		return NULL;
+	}
+	if(password) {
+		SSL_CTX_set_default_passwd_cb(ctx, (pem_password_cb*)&ssl_get_password);
+		/* We are passing &password to avoid warning on 'const' being discarded */
+		SSL_CTX_set_default_passwd_cb_userdata(ctx, &password);
+	}
+	if( SSL_CTX_use_certificate_file(ctx, certfile, SSL_FILETYPE_PEM) == 1) {
+		if( SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM) == 1) {
+			if( SSL_CTX_check_private_key(ctx) == 1) {
+				return ctx;
+			}
+			else _pam_log(LOG_ERR,"Wrong certificate/private key: %s", ERR_error_string(ERR_get_error(), error_string));
+		}
+		else _pam_log(LOG_ERR,"Could not load private key from '%s': %s", keyfile, ERR_error_string(ERR_get_error(), error_string));
+	}
+	else _pam_log(LOG_ERR,"Could not load certificate from '%s': %s", certfile, ERR_error_string(ERR_get_error(), error_string));
+	SSL_CTX_free(ctx);
+	return NULL;
+}
+#endif
 
 /*
  * allocate and open a local port for communication with the RADIUS
@@ -799,11 +933,12 @@ static int initialize(radius_conf_t *conf, int accounting)
 	char *p;
 	FILE *fp;
 	radius_server_t *server, **last;
-	int timeout;
+	int timeout, ctimeout;
 	int line = 0;
-	char src_ip[MAX_IP_LEN];
+	char src_ip[MAX_IP_LEN+1];
 	int valid_src_ip;
-	char vrf[IFNAMSIZ];
+	char vrf[IFNAMSIZ+1];
+	char *tok, *eptr, *pptr;
 
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
@@ -811,6 +946,15 @@ static int initialize(radius_conf_t *conf, int accounting)
 	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 	conf->sockfd = -1;
 	conf->sockfd6 = -1;
+
+#ifdef HAVE_LIBSSL
+	/* Setup OpenSSL and certificates if radsec is enabled */
+	if(conf->radsec && conf->cert && conf->key) {
+		if( !(conf->ssl = initialize_ssl(conf->cert, conf->key, conf->ca ? conf->ca : NULL, conf->keypasswd ? conf->keypasswd : NULL))) {
+			_pam_log(LOG_ERR,"Could not initialize SSL, all RADSEC servers are disabled");
+		}
+	}
+#endif
 
 	/* the first time around, read the configuration file */
 	fp = fopen (conf->conf_file, "r");
@@ -855,24 +999,145 @@ static int initialize(radius_conf_t *conf, int accounting)
 		 *	Initialize the optional variables.
 		 */
 		timeout = 3;
+		ctimeout = 2;
 		src_ip[0] = 0;
 		vrf[0] = 0;
 
 		/*
 		 *	Scan the line for data.
 		 */
-		if (sscanf(p, "%s %s %d %s %s", hostname, secret, &timeout, src_ip, vrf) < 2) {
-			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
+		//#define _PARSE_STRICT_
+		/* Read hostname */
+		pptr=NULL;
+		if(!(tok=strtok_r(p," \t\r\n", &pptr))) {
+			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname",
 				 conf->conf_file, line);
 			continue;			/* invalid line */
+		}
+		strcpy(hostname, tok);
+		p=tok+strlen(tok)+1;	/* reset just ahead the hostname */
+
+		/* Read secret */
+		while ((*p == ' ') || (*p == '\t') || (*p == '\r') || (*p == '\n')) p++;
+		if(*p == '\'') {
+			/* secret is a quoted string*/
+			p++;
+			tok = secret;
+			while(*p && (*p != '\'' && *p != '\r' && *p != '\n')) {
+				/* allow single quote in secret if escaped by "\" */
+				if(*p == '\\' && p[1] == '\'') p++;
+				*tok++ = *p++;
+			}
+			if(*p != '\'') {
+				/* closing quote not found */
+				_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read secret, quote not closed",
+					 conf->conf_file, line);
+				continue;			/* invalid line */
+			}
+			*tok = '\0';
+			p++;			/* restart parsing context at next strtok */
+			pptr=NULL;
+		} else {
+			/* allow secret stating with single quote if escaped by "\" */
+			if(*p == '\\' && (p[1] == '\'' || p[1] == '\\')) p++;
+			pptr=NULL;
+			if(!(tok=strtok_r(p," \t\r\n", &pptr))) {
+				_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read secret",
+					conf->conf_file, line);
+				continue;			/* invalid line */
+			}
+			strcpy(secret, tok);
+			p=NULL;			/* continue strtok as usual */
+		}
+
+		/* Read timout */
+		if((tok=strtok_r(p," \t\r\n", &pptr))) {
+			timeout = strtol(tok, &eptr, 10);
+			if(eptr != tok && *eptr == ',') {
+				tok=eptr + 1;
+				ctimeout = strtol(tok, &eptr, 10);
+			}
+		#ifdef _PARSE_STRICT_
+			if(eptr != tok && *eptr=='\0')
+		#else
+			if(eptr != tok)
+		#endif
+			{
+				/* Read src_ip */
+				if((tok=strtok_r(NULL," \t\r\n", &pptr))) {
+					strncpy(src_ip, tok, sizeof(src_ip)-1);
+					if(src_ip[sizeof(src_ip)-2] != '\0') {
+						_pam_log(LOG_ERR, "ERROR reading %s, line %d: source_ip '%s' to long (max %zu chars)",
+							conf->conf_file, line, tok, sizeof(src_ip)-1);
+						continue;			/* invalid line */
+					}
+
+					/* Read vrf */
+					if((tok=strtok_r(NULL," \t\r\n", &pptr))) {
+						strncpy(vrf, tok, sizeof(vrf)-1);
+						if(vrf[sizeof(vrf)-2] != '\0') {
+							_pam_log(LOG_ERR, "ERROR reading %s, line %d: vrf '%s' to long (max %zu chars)",
+								conf->conf_file, line, tok, sizeof(vrf)-1);
+							continue;			/* invalid line */
+						}
+
+					#ifdef _PARSE_STRICT_
+						if((tok=strtok_r(NULL," \t\r\n", &pptr))) {
+							_pam_log(LOG_ERR, "ERROR reading %s, line %d: Unexpected content at '%s'",
+								conf->conf_file, line, tok);
+							continue;			/* invalid line */
+						}
+					#endif
+
+					}
+				}
+			}
+		#ifdef _PARSE_STRICT_
+			else {
+				_pam_log(LOG_ERR, "ERROR reading %s, line %d: Invalid timeout '%s'",
+					 conf->conf_file, line, tok);
+				continue;			/* invalid line */
+			}
+		#endif
 		}
 
 		/*
 		 *	Fill in the relevant fields.
 		 */
 		server = calloc(1, sizeof(radius_server_t));
-		*last = server;
+		//*last = server;
 		server->next = NULL;
+		//last = &server->next;
+
+		/* Check if TCP */
+		if(!strncmp("tcp://",hostname,6)) server->proto = rad_proto_tcp;
+	#ifdef HAVE_LIBSSL
+		else if(!strncmp("tls://",hostname,6)) {
+			if(!conf->ssl) {
+				if(conf->radsec == 1) {
+					_pam_log(LOG_ERR,"Could not use RADIUS server %s: RADSEC disabled", hostname);
+					free(server);
+					continue;
+				}
+				_pam_log(LOG_WARNING,"RADSEC disabled. server %s fallback to UDP", hostname);
+				server->proto = rad_proto_udp;
+			}
+			else server->proto = rad_proto_sec;
+		}
+		else if(conf->radsec) {
+			if(conf->ssl && conf->radsec == 1) server->proto = rad_proto_sec;
+			else server->proto = rad_proto_udp;
+		}
+	#else
+		else if(!strncmp("tls://",hostname,6)) {
+			server->proto = rad_proto_udp;
+			_pam_log(LOG_WARNING,"RADSEC unsupported. server %s fallback to UDP", hostname);
+		}
+	#endif
+		else server->proto = rad_proto_udp;
+
+		*last = server;
+		//server->next = NULL;
 		last = &server->next;
 
 		/* sometime later do memory checks here */
@@ -890,15 +1155,22 @@ static int initialize(radius_conf_t *conf, int accounting)
 		} else {
 			server->timeout = timeout;
 		}
+		if (ctimeout < 1) {
+			server->connect_timeout = 1;
+		} else if (ctimeout > 60) {
+			server->connect_timeout = 60;
+		} else {
+			server->connect_timeout = ctimeout;
+		}
 
 		server->sockfd = -1;
 		server->sockfd6 = -1;
 
 		/*
-		 *	No source IP for this socket, it uses the
+		 *	No source IP for this socket and not TCP, it uses the
 		 *	global one.
 		 */
-		if (!src_ip[0]) continue;
+		if (!src_ip[0] && !server->proto) continue;
 
 		memset(&salocal4, 0, sizeof(salocal4));
 		memset(&salocal6, 0, sizeof(salocal6));
@@ -922,9 +1194,12 @@ static int initialize(radius_conf_t *conf, int accounting)
 			}
 		}
 
-		if (valid_src_ip == 0 || vrf[0]) {
-			if (initialize_sockets(conf, &server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf) != 0) {
-
+		/* TCP needs its own socket */
+		if (valid_src_ip == 0 || vrf[0] || server->proto) {
+		#ifndef NDEBUG
+			if(server->proto) _pam_log(LOG_DEBUG,"Use TCP for %s\n",server->hostname);
+		#endif
+			if (initialize_sockets(conf, &server->sockfd, &server->sockfd6, &salocal4, &salocal6, vrf, server->proto) != 0) {
 				goto error;
 			}
 		}
@@ -944,7 +1219,7 @@ static int initialize(radius_conf_t *conf, int accounting)
 	((struct sockaddr *)&salocal4)->sa_family = AF_INET;
 	((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
-	if (initialize_sockets(conf, &conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL) != 0) {
+	if (initialize_sockets(conf, &conf->sockfd, &conf->sockfd6, &salocal4, &salocal6, NULL, 0) != 0) {
 		goto error;
 	}
 
@@ -1056,6 +1331,129 @@ static int ipaddr_cmp(struct sockaddr_storage const *a, struct sockaddr_storage 
 	return 0;
 }
 
+static int connect_tmout(int sockfd,struct sockaddr *ip,socklen_t salen,int tmout 
+#ifdef HAVE_LIBSSL 
+,SSL *ssl
+#endif
+)
+{
+	int rcode;
+	int flags;
+	int done = 0;
+#ifdef HAVE_POLL_H
+	struct pollfd pollfds[1];
+#else
+	fd_set set;
+#endif
+	struct timeval now, end;
+	struct timeval tv;
+	socklen_t len=sizeof(flags);
+
+	if((flags=fcntl(sockfd, F_GETFL, 0))!=-1) {
+		flags |= O_NONBLOCK;
+		flags=fcntl(sockfd, F_SETFL, flags);
+	}
+	if(flags!=-1) {
+		if(connect(sockfd, ip, salen)==-1)
+		{
+			if(errno!=EINPROGRESS) {
+				return -1;
+			}
+		}
+	}
+	else {
+		return -1;
+	}
+
+#ifdef HAVE_POLL_H
+	pollfds[0].fd = sockfd;   
+	pollfds[0].events = POLLOUT;     /* wait for data to write */
+#else
+	FD_ZERO(&set); 
+	FD_SET(sockfd, &set);    
+#endif
+	gettimeofday(&end,NULL);
+	tv.tv_sec = tmout; 
+	tv.tv_usec = 0;
+	end.tv_sec += tv.tv_sec;
+
+	int wr = 1;
+	while(1) {
+	#ifndef NDEBUG
+		_pam_log(LOG_DEBUG,"DEBUG: connect: TM=%u.%u WAIT %u ms [start %u.%u now %u.%u]",tv.tv_sec,tv.tv_usec,tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000),end.tv_sec,end.tv_usec,now.tv_sec,now.tv_usec);
+	#endif
+#ifdef HAVE_POLL_H
+		wr = wr; /* avoid compiler warning */
+		rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000));
+#else
+		rcode = select(sockfd + 1, wr ? NULL : &set, wr ? &set : NULL, NULL, &tv);
+#endif
+		if(rcode == -1) {
+			if (errno != EINTR) return -1;
+		}
+		else if(!rcode) {
+			errno=ETIMEDOUT;
+			return -1;
+#ifdef HAVE_POLL_H
+		} else if (pollfds[0].revents & POLLOUT || (pollfds[0].revents & POLLIN)) {
+#else
+		} else if(FD_ISSET(sockfd,&set)) {
+#endif
+			if(!done) {
+				if(getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (void*)&flags,&len) ==-1) return -1;
+				if(!flags) {
+				#ifdef HAVE_LIBSSL
+					if(!ssl) break; /* TCP connected we are done */
+				#endif
+					done = 1;
+				} else {
+					errno = flags;
+					return -1;
+				}
+			}
+		#ifdef HAVE_LIBSSL
+			if( (rcode = SSL_connect(ssl)) < 1) {
+				int err;
+				err	= SSL_get_error(ssl, rcode);
+				switch(err) {
+					case SSL_ERROR_SYSCALL:
+						if(!errno) errno=ECONNRESET;
+						return -1;
+					default:
+						return -2;
+					case SSL_ERROR_WANT_READ:
+						wr = 0;
+					#ifdef HAVE_POLL_H
+						pollfds[0].events = POLLIN;
+					#endif
+						break;
+					case SSL_ERROR_WANT_WRITE:
+						wr = 1;
+					#ifdef HAVE_POLL_H
+						pollfds[0].events = POLLOUT;
+					#endif
+						break;
+				}
+			}
+			else 
+		#endif
+			break;
+		}
+#ifdef HAVE_POLL_H
+		/* calculate next timeout */
+		gettimeofday(&now,NULL);
+		timersub(&end,&now,&tv);
+		if(tv.tv_sec < 0 ) {
+			tv.tv_sec = tv.tv_usec = 0;
+		}
+#endif
+	}
+	if((flags=fcntl(sockfd, F_GETFL, 0)) == -1) return -1;
+	flags &= (~O_NONBLOCK);
+	if((flags=fcntl(sockfd, F_SETFL, flags)) ==-1 ) return -1;
+	return 0;
+}
+
 /*
  * Talk RADIUS to a server.
  * Send a packet and get the response
@@ -1071,7 +1469,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #endif
 	struct timeval tv;
 
-	time_t now, end;
+	struct timeval now, end;
 	int rcode;
 	radius_server_t *server = conf->server;
 	int ok;
@@ -1080,6 +1478,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 	int sockfd;
 	socklen_t salen;
 	struct sockaddr_storage sockaddr_storage;
+
 	/* ************************************************************ */
 	/* Now that we're done building the request, we can send it */
 
@@ -1132,17 +1531,114 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			goto next;
 		}
 
-		total_length = ntohs(request->length);
 		server_tries = tries;
+
+		/* If TCP/TLS check if connected and otherwise connect */
+		if(server->proto) {
+			
+			salen = sizeof(sockaddr_storage);
+			rcode = getpeername(sockfd, (struct sockaddr *) &sockaddr_storage, &salen);
+			if(rcode == -1 && errno != ENOTCONN) {
+				char error_string[BUFFER_SIZE];
+				get_error_string(errno, error_string, sizeof(error_string));
+				_pam_log(LOG_ERR, "RADIUS server %s getpeername failed: %s",
+				 	server->hostname, error_string);
+				ok = FALSE;
+				goto next;		/* skip to the next server */
+
+			} else if(rcode == -1) {
+
+				if(conf->debug) _pam_log(LOG_DEBUG,"Setup connection for %s\n",server->hostname);
+
+		#ifdef HAVE_LIBSSL
+				if(server->proto == rad_proto_sec) {
+					if(!(server->ssl=SSL_new(conf->ssl))) {
+						_pam_log(LOG_ERR,"RADIUS server %s TLS initialization failed", server->hostname);
+						ok = FALSE;
+						goto next;
+					}
+					SSL_set_fd(server->ssl,sockfd);
+				}
+		#endif
+
+				rcode = connect_tmout(sockfd, server->ip, server->ip->sa_family == AF_INET? sizeof(struct sockaddr_in): sizeof(struct sockaddr_in6), server->connect_timeout
+			#ifdef HAVE_LIBSSL
+				, server->proto == rad_proto_sec ? server->ssl : NULL
+			#endif
+				);
+				if(rcode < 0) {
+					char error_string[BUFFER_SIZE];
+					#ifdef HAVE_LIBSSL
+					if(rcode == -2) {
+						int err;
+						err = SSL_get_error(server->ssl, rcode);
+						ERR_error_string(err, error_string);
+					}
+					else 
+					#endif
+					get_error_string(errno, error_string, sizeof(error_string));
+					_pam_log(LOG_ERR,"%s server %s %s failed: %s\n", server->proto == rad_proto_tcp ? "RADIUS": "RADSEC", server->hostname, rcode == -2 ? "handshake" : "connection", error_string);
+					ok = FALSE;
+					goto next;
+				}
+				#ifdef HAVE_LIBSSL
+				if(server->proto == rad_proto_sec) {
+					int err;
+					char certname[1000];
+					X509 *cert=SSL_get_peer_certificate(server->ssl);
+					if(!cert) {
+						_pam_log(LOG_ERR,"RADSEC server %s could not get certificate", server->hostname);
+						ok = FALSE;
+						goto next;
+					}
+					X509_NAME_oneline(X509_get_subject_name(cert),certname,sizeof(certname));
+					X509_free(cert);
+					if(conf->debug) _pam_log(LOG_DEBUG,"RADSEC server %s connected: %s", server->hostname, certname);
+					if((err=SSL_get_verify_result(server->ssl))!=X509_V_OK) {
+						_pam_log(conf->ssl_verify ? LOG_ERR : LOG_WARNING, "RADSEC server %s certificate '%s' invalid: %s", server->hostname, certname, X509_verify_cert_error_string(err));
+						if(conf->ssl_verify) {
+							ok = FALSE;
+							goto next;
+						}
+					}
+				}
+				else if(conf->debug) {
+				#else
+				if(conf->debug) {
+				#endif
+					_pam_log(LOG_DEBUG,"RADIUS server %s connected\n", server->hostname);
+				}
+			}
+		}
 	send:
 		if (server->ip->sa_family == AF_INET) {
 			salen = sizeof(struct sockaddr_in);
 		} else {
 			salen = sizeof(struct sockaddr_in6);
 		}
+		
+
+		total_length = ntohs(request->length);
 
 		/* send the packet */
-		if (sendto(sockfd, (char *) request, total_length, 0, server->ip, salen) < 0) {
+	#ifdef HAVE_LIBSSL
+		if(server->proto == rad_proto_sec) {
+			if( (rcode = SSL_write(server->ssl, request, total_length)) < 1) {
+				int err=SSL_get_error(server->ssl, rcode);
+				char error_string[BUFFER_SIZE];
+				if( err == SSL_ERROR_SYSCALL) {
+					get_error_string(errno, error_string, sizeof(error_string));
+				} else {
+					ERR_error_string(err, error_string);
+				}
+				_pam_log(LOG_ERR, "Error sending RADSEC packet to server %s: %s",
+				 	server->hostname, error_string);
+				ok = FALSE;
+				goto next;		/* skip to the next server */
+			}
+		} else {
+	#endif
+		if (sendto(sockfd, (char *) request, total_length, MSG_NOSIGNAL, server->ip, salen) < 0) {
 			char error_string[BUFFER_SIZE];
 			get_error_string(errno, error_string, sizeof(error_string));
 			_pam_log(LOG_ERR, "Error sending RADIUS packet to server %s: %s",
@@ -1150,14 +1646,17 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			ok = FALSE;
 			goto next;		/* skip to the next server */
 		}
+	#ifdef HAVE_LIBSSL
+		}
+	#endif
 
 		/* ************************************************************ */
 		/* Wait for the response, and verify it. */
-		time(&now);
+		gettimeofday(&end,NULL);
 
 		tv.tv_sec = server->timeout;    /* wait for the specified time */
 		tv.tv_usec = 0;
-		end = now + tv.tv_sec;
+		end.tv_sec += tv.tv_sec;
 
 #ifdef HAVE_POLL_H
 		pollfds[0].fd = sockfd;   /* wait only for the RADIUS UDP socket */
@@ -1169,9 +1668,13 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 		/* loop, waiting for the network to return data */
 		ok = TRUE;
+		total_length = 0;
 		while (ok) {
+		#ifndef NDEBUG
+			_pam_log(LOG_DEBUG,"DEBUG: recv: TM=%u.%u WAIT %u ms [start %u.%u now %u.%u]",tv.tv_sec,tv.tv_usec,tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000),end.tv_sec,end.tv_usec,now.tv_sec,now.tv_usec);
+		#endif
 #ifdef HAVE_POLL_H
-			rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000);
+			rcode = poll((struct pollfd *) &pollfds, 1, tv.tv_sec * 1000 + (int)(tv.tv_usec / 1000));
 #else
 			rcode = select(sockfd + 1, &set, NULL, NULL, &tv);
 #endif
@@ -1179,7 +1682,7 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			/* timed out */
 			if (rcode == 0) {
 				_pam_log(LOG_ERR, "RADIUS server %s failed to respond", server->hostname);
-				if (--server_tries) {
+				if (server->proto == rad_proto_udp && --server_tries) {
 					goto send;
 				}
 				ok = FALSE;
@@ -1189,19 +1692,19 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 			if (rcode < 0) {
 				/* poll returned an error */
 				if (errno == EINTR) {	/* we were interrupted */
-					time(&now);
+					gettimeofday(&now,NULL);
 
-					if (now > end) {
+					if(timercmp(&now,&end,>)) {
 						_pam_log(LOG_ERR, "RADIUS server %s failed to respond",
 							 server->hostname);
-						if (--server_tries) goto send;
+						if (server->proto == rad_proto_udp && --server_tries) goto send;
 						ok = FALSE;
 						break;		/* exit from the loop */
 					}
 
-					tv.tv_sec = end - now;
-					if (tv.tv_sec == 0) {   /* keep waiting */
-						tv.tv_sec = 1;
+					timersub(&end,&now,&tv);
+					if(tv.tv_sec < 0  ) {
+						tv.tv_sec = tv.tv_usec = 0;
 					}
 				} else {			/* not an interrupt, it was a real error */
 					char error_string[BUFFER_SIZE];
@@ -1218,33 +1721,96 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 #else
 			} else if (FD_ISSET(sockfd, &set)) {
 #endif
-				ssize_t response_length;
-
 				/* try to receive some data */
 				salen = sizeof(sockaddr_storage);
 
-				if ((response_length = recvfrom(sockfd, (void *) response, BUFFER_SIZE,
-							     0, (struct sockaddr *) &sockaddr_storage, &salen)) < 0) {
+				int rlen;
+				if(server->proto == rad_proto_tcp) {
+					rlen=recv(sockfd, (void*)(response+total_length), BUFFER_SIZE-total_length, 0);
+			#ifdef HAVE_LIBSSL
+				} else if(server->proto == rad_proto_sec) {
+					if( (rlen=SSL_read(server->ssl,response+total_length, BUFFER_SIZE-total_length)) < 1) {
+						int err=SSL_get_error(server->ssl, rlen);
+						if(err == SSL_ERROR_WANT_READ) {
+						#ifdef HAVE_POLL_H
+							/* calculate next timeout */
+							gettimeofday(&now,NULL);
+							timersub(&end,&now,&tv);
+							if(tv.tv_sec < 0 ) {
+								tv.tv_sec = tv.tv_usec = 0;
+							}
+						#endif
+							continue;
+						}
+						else if(err == SSL_ERROR_SYSCALL) {
+							rlen=-1;
+							if(!errno) errno=ECONNRESET;
+						}
+						else if(err == SSL_ERROR_ZERO_RETURN) rlen=0;
+						else {
+							char error_string[BUFFER_SIZE];
+							ERR_error_string(err, error_string);
+							_pam_log(LOG_ERR,"error reading RADSEC packet from %s: [%u]: %s",
+								server->hostname, err, error_string);
+							ok = FALSE;
+							goto next;
+						}
+					}
+			#endif
+				} else {
+					rlen=recvfrom(sockfd, (void *) response, BUFFER_SIZE, 0, (struct sockaddr *) &sockaddr_storage, &salen);
+				}
+				if(rlen < 0) {
 					char error_string[BUFFER_SIZE];
 					get_error_string(errno, error_string, sizeof(error_string));
 					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: %s",
 					 	 server->hostname, error_string);
-					continue;
+					if(server->proto == rad_proto_udp) continue;
+					ok = FALSE;
+					goto next;
 				}
+				#ifndef NDEBUG
+				_pam_log(LOG_DEBUG,"DEBUG: %s recv len=%u tot=%u\n",server->hostname,rlen,total_length);
+				#endif
+				if(server->proto) {
+					total_length += rlen;
+					if(!rlen) {
+						_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: Connection closed by foreign host",
+					 	 	server->hostname);
+						ok = FALSE;
+						goto next;
+					}
+					if( (total_length < (int)offsetof(AUTH_HDR,vector))  /* Check if you have read up to the response length  and */
+						|| (ntohs(response->length) > total_length) ) {  /* Check if you have read all the response or wait for more */
+					#ifdef HAVE_POLL_H
+						/* calculate next timeout */
+						gettimeofday(&now,NULL);
+						timersub(&end,&now,&tv);
+						if(tv.tv_sec < 0 ) {
+							tv.tv_sec = tv.tv_usec = 0;
+						}
+					#endif
+						continue;
+					}
+				} else {
 
+					total_length = rlen;
 				/*
 				 *	Ignore packets from the wrong source iP
 				 */
-				if (!ipaddr_cmp(&sockaddr_storage, &server->ip_storage)) {
-					_pam_log(LOG_ERR, "Received data from unexpected source - ignoring it");
-					continue;
+					if (!ipaddr_cmp(&sockaddr_storage, &server->ip_storage)) {
+						_pam_log(LOG_ERR, "Received data from unexpected source - ignoring it");
+						continue;
+					}
 				}
 
-				if ((ntohs(response->length) != response_length) ||
+				if ((ntohs(response->length) != total_length) ||
 				    (ntohs(response->length) > BUFFER_SIZE)) {
 					_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
 						 server->hostname);
-					continue;
+					if(server->proto == rad_proto_udp) continue;
+					ok = FALSE;
+					goto next;
 				}
 
 				/*
@@ -1254,26 +1820,34 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					_pam_log(LOG_WARNING, "Response packet ID %d does not match the "
 						 "request packet ID %d: ignoring it.",
 						 response->id, request->id);
-					continue;
+					if(server->proto == rad_proto_udp) continue;
+					ok = FALSE;
+					goto next;
 				}
 
 				if ((request->code == PW_ACCOUNTING_REQUEST) && (response->code != PW_ACCOUNTING_RESPONSE)) {
 					_pam_log(LOG_WARNING, "Invalid response to Accounting-Request: ignoring it.",
 						 response->id, request->id);
-					continue;
+					if(server->proto == rad_proto_udp) continue;
+					ok = FALSE;
+					goto next;
 				}
 
 				if ((request->code == PW_ACCESS_REQUEST) &&
 				    !((response->code == PW_ACCESS_ACCEPT) || (response->code == PW_ACCESS_REJECT) || (response->code == PW_ACCESS_CHALLENGE))) {
 					_pam_log(LOG_WARNING, "Invalid response to Access-Request: ignoring it.",
 						 response->id, request->id);
-					continue;
+					if(server->proto == rad_proto_udp) continue;
+					ok = FALSE;
+					goto next;
 				}
 
 				if (!verify_packet(server, response, request, conf)) {
 					_pam_log(LOG_ERR, "packet from RADIUS server %s failed verification: "
 						 "The shared secret is probably incorrect.", server->hostname);
-					continue;
+					if(server->proto == rad_proto_udp) continue;
+					ok = FALSE;
+					goto next;
 				}
 
 				/*
@@ -1298,6 +1872,14 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 
 			_pam_forget(old->secret);
 			free(old->hostname);
+		#ifdef HAVE_LIBSSL
+			if(server->ssl) {
+				SSL_free(server->ssl);
+				server->ssl=NULL;
+			}
+		#endif
+			if(old->sockfd != -1) close(old->sockfd);
+			if(old->sockfd6 != -1) close(old->sockfd6);
 			free(old);
 
 			if (server) {		/* if there's more servers to check */
@@ -1453,6 +2035,9 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	 * Then, open a socket, and bind it to a port
 	 */
 	retval = initialize(&config, FALSE);
+#ifdef HAVE_LIBSSL
+	if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 	PAM_FAIL_CHECK;
 
 	/*
@@ -1461,6 +2046,9 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	 */
 	if (!config.client_id) {
 		retval = pam_get_item(pamh, PAM_SERVICE, (CONST void **) &config.client_id);
+#ifdef HAVE_LIBSSL
+		if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 		PAM_FAIL_CHECK;
 	}
 
@@ -1710,6 +2298,11 @@ do_next:
 	if (config.sockfd6 >= 0) close(config.sockfd6);
 	
 	cleanup(config.server);
+#ifdef HAVE_LIBSSL
+	if (config.ssl) 
+		SSL_CTX_free(config.ssl);
+#endif
+
 	_pam_forget(password);
 	_pam_forget(resp2challenge);
 	{
@@ -1766,6 +2359,9 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	 * Then, open a socket, and bind it to a port
 	 */
 	retval = initialize(&config, TRUE);
+#ifdef HAVE_LIBSSL
+	if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 	PAM_FAIL_CHECK;
 
 	/*
@@ -1774,6 +2370,9 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	 */
 	if (!config.client_id) {
 		retval = pam_get_item(pamh, PAM_SERVICE, (CONST void **) &config.client_id);
+#ifdef HAVE_LIBSSL
+		if (retval != PAM_SUCCESS && config.ssl) SSL_CTX_free(config.ssl);
+#endif
 		PAM_FAIL_CHECK;
 	}
 
@@ -1817,10 +2416,11 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	 *
 	 *	Note that this is NOT the IP address of the machine running PAM!
 	 *	It's the IP address of the client.
-	 */
+	*/
 	retval = pam_get_item(pamh, PAM_RHOST, (CONST void **) &rhost);
 	PAM_FAIL_CHECK;
 	if (rhost) {
+
 		add_attribute(request, PW_CALLING_STATION_ID, (const uint8_t *) rhost, strlen(rhost));
 	}
 
@@ -1841,6 +2441,10 @@ error:
 	if (config.sockfd6 >= 0)
 		close(config.sockfd6);
 	cleanup(config.server);
+#ifdef HAVE_LIBSSL
+	if (config.ssl) 
+		SSL_CTX_free(config.ssl);
+#endif
 
 	return retval;
 }

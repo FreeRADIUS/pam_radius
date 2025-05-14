@@ -247,6 +247,28 @@ dnl #  link against -lsocket we need to include -lnsl as well.
 dnl #
 AC_CHECK_LIB(nsl, inet_ntoa)
 
+dnl #
+dnl # Check if openssl is usable. It is need for RADSEC
+dnl #
+
+AC_ARG_ENABLE(radsec,
+	AS_HELP_STRING([--enable-radsec],[build with RADSEC support, requires openssl])
+)
+AS_IF([test "x$enableval" != "xno"],[
+		AC_CHECK_LIB(crypto, CRYPTO_new_ex_data, [
+			AC_CHECK_LIB(ssl, OPENSSL_init_ssl, [
+					AC_DEFINE(HAVE_LIBSSL)
+  					LDFLAGS="$LDFLAGS -lcrypto -lssl"
+				] , [
+					AS_IF([test "x$enableval" == "xyes"], AC_MSG_ERROR([library OpenSSL is required for RADSEC]),
+						AC_MSG_WARN([library OpenSSL not found. Disabling RADSEC])
+				)
+				])
+			] , [ 
+			AS_IF([test "x$enableval" == "xyes"], AC_MSG_ERROR([library 'crypto' is required for OpenSSL]), AC_MSG_WARN([library 'crypto' not found. Disabling RADSEC]))
+		])
+])
+
 dnl #############################################################
 dnl #
 dnl #  3. Checks for header files
