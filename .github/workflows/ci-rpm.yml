@@ -223,3 +223,9 @@ jobs:
       with:
         limit-access-to-actor: true
       if: ${{ github.ref == 'refs/heads/ci-debug' && failure() }}
+    
+    - name: "Upload rpm-packages"
+      uses: actions/upload-artifact@v4
+      with:
+        name: artifact-rpm-${{ matrix.env.NAME }}
+        path: ./pam_radius/rpmbuild/RPMS/x86_64/pam*.rpm
