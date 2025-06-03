@@ -40,8 +40,10 @@ jobs:
       fail-fast: false
       matrix:
         env:
-          - { "NAME": "rocky-8",  "OS": "rockylinux/rockylinux:8",       "DIST": "rocky"  }
-          - { "NAME": "rocky-9",  "OS": "rockylinux/rockylinux:9",       "DIST": "rocky"  }
+          - { "NAME": "rocky-8",    "OS": "rockylinux/rockylinux:8",       "DIST": "rocky"  }
+          - { "NAME": "rocky-9",    "OS": "rockylinux/rockylinux:9",       "DIST": "rocky"  }
+          - { "NAME": "fedora-40",  "OS": "fedora:40",                   "DIST": "fedora"  }
+          - { "NAME": "fedora-41",  "OS": "fedora:41",                   "DIST": "fedora"  }
 
     steps:
 
