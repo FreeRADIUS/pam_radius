@@ -1683,7 +1683,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 			if ((buf = malloc(attr_class->length - 1))) {
 				buf[0] = attr_class->length - 2;
-				memcpy(buf + 1, attr_class->data, attr_class->length - 1);
+				memcpy(buf + 1, attr_class->data, attr_class->length - 2);
 
 				if (pam_set_data(pamh, "pam_radius_auth_class", (void*)buf, _int_free) != PAM_SUCCESS) {
 					_pam_log(LOG_ERR, "Could not save RADIUS Class: pam_set_data failed");
