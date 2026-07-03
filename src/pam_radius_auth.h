@@ -36,6 +36,12 @@
 #include <poll.h>
 #endif
 
+#ifdef HAVE_LIBSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/x509.h>
+#endif
+
 #if defined(HAVE_SECURITY_PAM_APPL_H)
 #  include <security/pam_appl.h>
 #elif defined(HAVE_PAM_PAM_APPL_H)
@@ -166,10 +172,17 @@ typedef struct radius_server_t {
 	char *hostname;
 	char *secret;
 	int timeout;
+	int connect_timeout;
 	int accounting;
 	int sockfd;
 	int sockfd6;
+	enum radius_server_proto { rad_proto_udp=0, rad_proto_tcp=1, rad_proto_sec=2} proto;
 	char vrf[IFNAMSIZ];
+	enum radius_server_state_t { rad_state_dead = 0, rad_state_connect, rad_state_ready, rad_state_response, rad_state_handshake_r = 10, rad_state_handshake_w } state;
+	struct timeval ttl;
+#ifdef HAVE_LIBSSL
+	SSL *ssl;
+#endif
 } radius_server_t;
 
 typedef struct radius_conf_t {
@@ -191,6 +204,15 @@ typedef struct radius_conf_t {
 	int require_message_authenticator;
 	uint8_t *message_authenticator;
 	char hostname[MAXHOSTNAMELEN + 1];
+#ifdef HAVE_LIBSSL
+	int radsec;
+	int ssl_verify;
+	SSL_CTX *ssl;
+	CONST char *cert;
+	CONST char *key;
+	CONST char *keypasswd;
+	CONST char *ca;
+#endif
 } radius_conf_t;
 
 #endif /* PAM_RADIUS_H */
