@@ -116,7 +116,7 @@ clean:
 #
 .PHONY: install
 install: all
-	install -Dm 0644 pam_radius_auth.so $(DESTDIR)/lib/security/pam_radius_auth.so
+	install -Dm 0755 pam_radius_auth.so $(DESTDIR)/lib/security/pam_radius_auth.so
 	install -Dm 0644 pam_radius_auth.conf $(DESTDIR)/etc/pam_radius_auth.conf
 
 ######################################################################
