@@ -533,18 +533,18 @@ static int verify_packet(radius_server_t *server, AUTH_HDR *response, AUTH_HDR *
  */
 static attribute_t *find_attribute(AUTH_HDR *response, uint8_t type)
 {
-	attribute_t *attr = (attribute_t *) &response->data;
-	uint16_t len;
+	uint8_t *attr, *end;
 
-	len = (ntohs(response->length) - AUTH_HDR_LEN);
+	attr = response->data;
+	end = response->data + ntohs(response->length) - AUTH_HDR_LEN;
 
-	while (attr->attribute != type) {
-		if ((len -= attr->length) <= 0) return NULL;		/* not found */
+	while (attr < end) {
+		if (attr[0] == type) return (attribute_t *) attr;
 
-		attr = (attribute_t *) ((char *) attr + attr->length);
+		attr += attr[1];
 	}
 
-	return attr;
+	return NULL;
 }
 
 /**
