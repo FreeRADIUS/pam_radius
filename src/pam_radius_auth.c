@@ -438,14 +438,11 @@ static void get_random_vector(uint8_t *vector)
 static void get_accounting_vector(AUTH_HDR *request, radius_server_t *server)
 {
 	MD5_CTX my_md5;
-	uint16_t len = ntohs(request->length);
-	int secretlen = strlen(server->secret);
 
 	memset(request->vector, 0, AUTH_VECTOR_LEN);
 	MD5Init(&my_md5);
-	memcpy(((char *)request) + len, server->secret, secretlen);
-
-	MD5Update(&my_md5, (uint8_t *)request, len + secretlen);
+	MD5Update(&my_md5, (uint8_t *) request, ntohs(request->length));
+	MD5Update(&my_md5, (CONST uint8_t *) server->secret, strlen(server->secret));
 	MD5Final(request->vector, &my_md5);			/* set the final vector */
 }
 
