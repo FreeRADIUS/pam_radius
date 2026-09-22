@@ -1878,6 +1878,5 @@ struct pam_module _pam_radius_modstruct = {
 	.pam_sm_acct_mgmt = pam_sm_acct_mgmt,
 	.pam_sm_open_session = pam_sm_open_session,
 	.pam_sm_close_session = pam_sm_close_session,
-	.pam_sm_chauthtok = pam_sm_chauthtok,
 };
 #endif
