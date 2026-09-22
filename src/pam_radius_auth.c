@@ -527,6 +527,8 @@ static int verify_packet(radius_server_t *server, AUTH_HDR *response, AUTH_HDR *
 /**
  * Find an attribute in a RADIUS packet.	Note that the packet length
  * is *always* kept in network byte order.
+ *
+ * verify_packet() MUST have been called first, before this function is called.
  */
 static attribute_t *find_attribute(AUTH_HDR *response, uint8_t type)
 {
