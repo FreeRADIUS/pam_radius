@@ -1563,14 +1563,15 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		/* It's full challenge-response, default to echo on, unless the server wants it off */
 		prompt = PAM_PROMPT_ECHO_ON;
 		if (config.prompt_attribute) {
-			if((a_prompt = find_attribute(response, PW_PROMPT)) != NULL){
+			if (((a_prompt = find_attribute(response, PW_PROMPT)) != NULL) &&
+			    (a_prompt->length == 6)) {
 				uint32_t prompt_val_net = 0;
 				uint32_t prompt_val = 0;
 
 				memcpy((void *)&prompt_val_net, (void *) a_prompt->data, sizeof(uint32_t));
 				prompt_val = ntohl(prompt_val_net);
 
-				DPRINT(LOG_DEBUG, "Got Prompt=%d", prompt_val);
+				DPRINT(LOG_DEBUG, "Got Prompt=%u", prompt_val);
 				if(!prompt_val) prompt = PAM_PROMPT_ECHO_OFF;
 			}
 		}
@@ -1663,7 +1664,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		/*
 		 *	Framed-IP-Address is used, but is not required.
 		 */
-		if ((attr_fip = find_attribute(response, PW_FRAMED_ADDRESS))) {
+		if (((attr_fip = find_attribute(response, PW_FRAMED_ADDRESS)) != NULL) &&
+		    (attr_fip->length == 6)) {
 			char frameip[100];
 			struct in_addr ip_addr;
 
