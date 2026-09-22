@@ -44,8 +44,6 @@ jobs:
           - { "NAME": "ubuntu20", "OS": "ubuntu:20.04", "DIST": "ubuntu" }
           - { "NAME": "ubuntu22", "OS": "ubuntu:22.04", "DIST": "ubuntu" }
           - { "NAME": "ubuntu24", "OS": "ubuntu:24.04", "DIST": "ubuntu" }
-          - { "NAME": "debian10", "OS": "debian:10",    "DIST": "debian" }
-          - { "NAME": "debian11", "OS": "debian:11",    "DIST": "debian" }
           - { "NAME": "debian12", "OS": "debian:12",    "DIST": "debian" }
 
     steps:
