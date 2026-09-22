@@ -803,9 +803,9 @@ static int initialize(radius_conf_t *conf, int accounting)
 	radius_server_t *server, **last;
 	int timeout;
 	int line = 0;
-	char src_ip[MAX_IP_LEN];
+	char src_ip[BUFFER_SIZE];
 	int valid_src_ip;
-	char vrf[IFNAMSIZ];
+	char vrf[BUFFER_SIZE];
 
 	memset(&salocal4, 0, sizeof(salocal4));
 	memset(&salocal6, 0, sizeof(salocal6));
@@ -862,9 +862,32 @@ static int initialize(radius_conf_t *conf, int accounting)
 
 		/*
 		 *	Scan the line for data.
+		 *
+		 *	The "%s" conversions are unbounded, so every
+		 *	destination is as large as the line buffer.  The
+		 *	length checks after sscanf() enforce the smaller
+		 *	limit that src_ip and vrf have.
+		 *
+		 *	Only a local administrative user who can write to
+		 *	the configuration file can overflow a destination.
+		 *	That user can already read and change the shared
+		 *	secrets, so the length checks catch mistakes, and
+		 *	do not stop an attacker.
 		 */
 		if (sscanf(p, "%s %s %d %s %s", hostname, secret, &timeout, src_ip, vrf) < 2) {
 			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Could not read hostname or secret\n",
+				 conf->conf_file, line);
+			continue;			/* invalid line */
+		}
+
+		if (strlen(src_ip) >= MAX_IP_LEN) {
+			_pam_log(LOG_ERR, "ERROR reading %s, line %d: Source IP address is too long\n",
+				 conf->conf_file, line);
+			continue;			/* invalid line */
+		}
+
+		if (strlen(vrf) >= IFNAMSIZ) {
+			_pam_log(LOG_ERR, "ERROR reading %s, line %d: VRF name is too long\n",
 				 conf->conf_file, line);
 			continue;			/* invalid line */
 		}
@@ -908,7 +931,6 @@ static int initialize(radius_conf_t *conf, int accounting)
 		((struct sockaddr *)&salocal6)->sa_family = AF_INET6;
 
 		valid_src_ip = -1;
-		vrf[IFNAMSIZ - 1] = 0;
 
 		memset(&salocal, 0, sizeof(salocal));
 		valid_src_ip = get_ipaddr(src_ip, (struct sockaddr *)&salocal, NULL);

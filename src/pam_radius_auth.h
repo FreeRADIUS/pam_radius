@@ -100,8 +100,8 @@
 #define PAM_RUSER_ARG      16
 
 
-/* buffer size for IP address in string form */
-#define MAX_IP_LEN 16
+/* buffer size for IP address in string form, including IPv6 */
+#define MAX_IP_LEN INET6_ADDRSTRLEN
 
 /* Module defines */
 #ifndef BUFFER_SIZE
