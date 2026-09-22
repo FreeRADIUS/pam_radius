@@ -554,6 +554,8 @@ static void add_attribute(AUTH_HDR *request, uint8_t type, CONST uint8_t *data, 
 {
 	attribute_t *p;
 
+	if (length > 253) length = 253;
+
 	p = (attribute_t *) ((uint8_t *)request + ntohs(request->length));
 	p->attribute = type;
 	p->length = length + 2;		/* the total size of the attribute */
