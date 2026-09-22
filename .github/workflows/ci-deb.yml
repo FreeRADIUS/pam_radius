@@ -41,10 +41,11 @@ jobs:
       fail-fast: false
       matrix:
         env:
-          - { "NAME": "ubuntu20", "OS": "ubuntu:20.04", "DIST": "ubuntu" }
           - { "NAME": "ubuntu22", "OS": "ubuntu:22.04", "DIST": "ubuntu" }
           - { "NAME": "ubuntu24", "OS": "ubuntu:24.04", "DIST": "ubuntu" }
+          - { "NAME": "ubuntu26", "OS": "ubuntu:26.04", "DIST": "ubuntu" }
           - { "NAME": "debian12", "OS": "debian:12",    "DIST": "debian" }
+          - { "NAME": "debian13", "OS": "debian:13",    "DIST": "debian" }
 
     steps:
 
