@@ -1265,8 +1265,13 @@ static int talk_radius(radius_conf_t *conf, AUTH_HDR *request, AUTH_HDR *respons
 					continue;
 				}
 
-				if ((ntohs(response->length) != response_length) ||
-				    (ntohs(response->length) > BUFFER_SIZE)) {
+				if (response_length < AUTH_HDR_LEN) {
+					_pam_log(LOG_ERR, "error reading RADIUS packet from server %s: packet is too small to be RADIUS",
+					 	 server->hostname);
+					continue;
+				}
+
+				if (ntohs(response->length) != response_length) {
 					_pam_log(LOG_ERR, "RADIUS packet from server %s is corrupted",
 						 server->hostname);
 					continue;
