@@ -1633,7 +1633,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 		if(config.privilege_level) {
 			char priv[21];
 			attribute_t *a_mpl;
-			int val;
+			uint32_t val;
 
 			retval = PAM_AUTHINFO_UNAVAIL; /* default if anything goes wrong */
 
@@ -1649,7 +1649,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 
 			memcpy(&val, &a_mpl->data, sizeof(val));
 			val = ntohl(val);
-			sprintf(priv, "Privilege=%d", val);
+			sprintf(priv, "Privilege=%u", val);
 
 			/* Save Management-Privilege-Level value in PAM environment variable 'Privilege' */
 			if(pam_putenv(pamh, priv) != PAM_SUCCESS) {
