@@ -1,3 +1,11 @@
+pam_radius_auth 4.0.0 Thu 22 Sep 2026 12:00:00 EDT urgency=high
+	Feature improvements
+
+	Bug fixes
+	* update find_attribute() to avoid underflow.
+	  Issue reported by Alexandru-Ionut Jipa
+	* Fix various issues found by scanning tools.
+
 pam_radius_auth 3.0.0 Fri 09 Aug 2024 12:00:00 EDT urgency=low
 	Feature improvements
 	* RPM and DEB packages can be built from the source.
