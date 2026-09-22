@@ -978,6 +978,7 @@ static void build_radius_packet(AUTH_HDR *request, CONST char *user, CONST char 
 		strcpy(hostname, conf->hostname);
 	} else {
 		gethostname(hostname, sizeof(hostname) - 1);
+		hostname[MAXHOSTNAMELEN] = '\0';
 	}
 
 	/*
