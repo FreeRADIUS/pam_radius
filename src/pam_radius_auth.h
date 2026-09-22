@@ -105,7 +105,7 @@
 
 /* Module defines */
 #ifndef BUFFER_SIZE
-#define BUFFER_SIZE      1024
+#define BUFFER_SIZE      4096
 #endif /* BUFFER_SIZE */
 #define MAXPWNAM 253    /* maximum user name length. Server dependent,
                          * this is the default value

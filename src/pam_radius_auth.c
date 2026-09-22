@@ -1430,8 +1430,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, UNUSED int flags, int arg
 	int retval = PAM_AUTH_ERR;
 	int num_challenge = 0;
 
-	char recv_buffer[4096];
-	char send_buffer[4096];
+	char recv_buffer[BUFFER_SIZE];
+	char send_buffer[BUFFER_SIZE];
 	AUTH_HDR *request = (AUTH_HDR *) send_buffer;
 	AUTH_HDR *response = (AUTH_HDR *) recv_buffer;
 	radius_conf_t config;
@@ -1773,8 +1773,8 @@ static int pam_private_session(pam_handle_t *pamh, UNUSED int flags, int argc, C
 	const unsigned char *class = NULL;
 	int retval = PAM_AUTH_ERR;
 
-	char recv_buffer[4096];
-	char send_buffer[4096];
+	char recv_buffer[BUFFER_SIZE];
+	char send_buffer[BUFFER_SIZE];
 	AUTH_HDR *request = (AUTH_HDR *) send_buffer;
 	AUTH_HDR *response = (AUTH_HDR *) recv_buffer;
 	radius_conf_t config;
